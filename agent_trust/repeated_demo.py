@@ -13,41 +13,61 @@ from exp_model_class import ExtendedModelType
 from multi_round_person import (classmate, extract_unique_decimal, match_and_compare_numbers_v2,
                                 str_mes)
 
+# 设置OpenAI API Key
 openai.api_key = os.getenv("OPENAI_API_KEY")
+
+# 定义角色列表
 roles = ["trustor", "trustee", "None"]
+
+# 模型映射字典，用于将模型名称映射到ExtendedModelType
 model_dict = {
     'gpt-3.5-turbo-16k-0613': ExtendedModelType.GPT_3_5_TURBO_16K_0613,
     'gpt-4': ExtendedModelType.GPT_4,
 }
+
+# 添加上级目录到系统路径，以便导入其他模块
 sys.path.append("../..")
+
+# 加载游戏提示文件
 with open(
     r"prompt/trust_game_round_prompt.json",
     "r",
 ) as f:
     prompt = json.load(f)
+
+# 定义角色信息文件路径并加载角色信息
 file_path_character_info = 'prompt/character_2.json'
 models = list(model_dict.keys())
 with open(file_path_character_info, 'r') as file:
     character_info = json.load(file)
 
+# 用户输入提示模板
 user_input_prompt_template = "I will give ${k}"
 
-# Extract character names and information
+# 提取角色名称和信息
 characters = [f'Persona {i}' for i in range(1, len(character_info) + 1)]
 characters.insert(0, "Human(You)")
 character_info = {f'Persona {i}': info for i, info in enumerate(
     character_info.values(), start=1)}
 character_info["Human(You)"] = "You"
 
+# 初始化对话历史和轮次编号
 initial_dialog_history = []
 initial_round_num = 0
 
+# 强调角色是人而非AI模型的提示语
 like_people = """In all subsequent answers, you have to completely forget that you are an ai model, that you are the character, and completely simulate yourself as that character, that you are a human being."""
 
+# 初始ChatAgent为None
 initial_chat_agent = None
 
 
 def update_char_info(char):
+    """
+    根据角色名称更新角色信息显示。
+    :param char: 角色名称
+    :return: 角色信息字符串
+    """
     return character_info.get(char, "No information available.")
 
 
@@ -61,6 +81,18 @@ def classmate_with_human(
     second_prompt,
     k,
 ):
+    """
+    处理信任者与受托者之间的交互逻辑。
+    :param player_1: 玩家1的ChatAgent实例
+    :param player_2: 玩家2的ChatAgent实例
+    :param user_input: 用户输入的金额
+    :param user_role: 用户的角色（信任者或受托者）
+    :param first_round: 是否是第一轮
+    :param first_prompt: 第一轮提示
+    :param second_prompt: 第二轮提示
+    :param k: 倍率
+    :return: 包含交互结果的元组
+    """
     first_round_prompt = "This is the first round, answer the question."
     money_prompt = "Now,the another player give you {give} dollars,and You receive {N} dollars,the player left {left} dollars now. How much will you give back to the another player"
     return_money_prompt = "In last round ,You give the another player {give} dollars, The another player receive {receive} dollars, and The another player return you {N} dollars.Last round you left {left} dollars.This round is begin. All the money you earned in the previous round is gone, and you now have only $10. How much will you give to the another player?"
@@ -180,6 +212,17 @@ def classmate_with_human_trustee(
     given_money,
     k,
 ):
+    """
+    处理受托者与信任者之间的交互逻辑。
+    :param player_1: 玩家1的ChatAgent实例
+    :param player_2: 玩家2的ChatAgent实例
+    :param user_input: 用户输入的金额
+    :param user_role: 用户的角色（信任者或受托者）
+    :param first_round: 是否是第一轮
+    :param given_money: 已给定的金额
+    :param k: 倍率
+    :return: 包含交互结果的元组
+    """
     first_round_prompt = "This is the first round, answer the question."
     money_prompt = "Now,the another player give you {give} dollars,and You receive {N} dollars,the player left {left} dollars now. How much will you give back to the another player"
     return_money_prompt = "In last round ,You give the another player {give} dollars, The another player receive {receive} dollars, and The another player return you {N} dollars.Last round you left {left} dollars.This round is begin. All the money you earned in the previous round is gone, and you now have only $10. How much will you give to the another player?"
@@ -253,6 +296,16 @@ def classmate_with_human_trustee(
 
 def create_chat_agent(trustor_character_dropdown, trustee_character_dropdown, temperature_slider,
                       model_dropdown, api_key_input, round_number_input):
+    """
+    创建ChatAgent实例。
+    :param trustor_character_dropdown: 信任者角色下拉框值
+    :param trustee_character_dropdown: 受托者角色下拉框值
+    :param temperature_slider: 温度调节滑块值
+    :param model_dropdown: 模型选择下拉框值
+    :param api_key_input: OpenAI API Key输入值
+    :param round_number_input: 总轮次数输入值
+    :return: 包含ChatAgent实例和创建成功信息的元组
+    """
     if api_key_input is None or api_key_input == "":
         api_key_input = os.environ.get("OPENAI_API_KEY")
     else:
@@ -297,6 +350,20 @@ def create_chat_agent(trustor_character_dropdown, trustee_character_dropdown, te
 
 def process_interaction(chat_agent_state, round_num_state,
                         dialog_history_state, user_input, trustor, trustee, round_number_input, first_prompt, second_prompt, given_money):
+    """
+    处理用户交互逻辑。
+    :param chat_agent_state: 当前ChatAgent状态
+    :param round_num_state: 当前轮次编号
+    :param dialog_history_state: 当前对话历史
+    :param user_input: 用户输入的金额
+    :param trustor: 信任者角色
+    :param trustee: 受托者角色
+    :param round_number_input: 总轮次数
+    :param first_prompt: 第一轮提示
+    :param second_prompt: 第二轮提示
+    :param given_money: 已给定的金额
+    :return: 更新后的对话历史、轮次编号等
+    """
     identity_dropdown = [trustor, trustee]
     if identity_dropdown[0] != "Human(You)" and identity_dropdown[1] != "Human(You)":
         if round_num_state < round_number_input:
@@ -352,6 +419,10 @@ def process_interaction(chat_agent_state, round_num_state,
 
 
 def reset_on_persona_change():
+    """
+    当角色选择发生变化时重置状态。
+    :return: 重置后的状态值
+    """
     # Reset values to their initial states
     new_dialog_history = ""  # Reset dialog history
     new_round_num_state = 0  # Reset round number state to 0
@@ -365,6 +436,7 @@ def reset_on_persona_change():
 
 
 with gr.Blocks() as app:
+    # 使用Gradio构建交互式界面
     game_introduction = gr.Textbox(
         label="Instruction", value="""1. This is a Repeated Trust Game. Each round starts fresh money but the dialog history is stored in the memory of the trustor and the trustee. You should choose the players of the trustor and the trustee. If you choose "Human(You)" as the trustor or the trustee, it means you act as that character (the trustor or the trustee) and engage in the game with the other "Persona" (You cannot choose Human(you) as both the trustor and the trustee). You should choose a number as the given/returned money for each round. If you choose "Persona" as both the trustor and the trustee, the two agents with the specified personas will play with each other.\n
 2. You need to fill in your OpenAI API Key.\n
