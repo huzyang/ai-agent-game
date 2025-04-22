@@ -10,12 +10,24 @@ from exp_model_class import ExtendedModelType
 from openai import OpenAI
 from pydantic import BaseModel
 
+# 创建一个经过patch的OpenAI客户端实例
 client = instructor.patch(OpenAI(api_key=os.getenv("OPENAI_API_KEY")))
 
+# 定义游戏列表，包含"lottery"和"trustee"
 game_list = ["lottery", "trustee"]
 
 
 class money_extract(BaseModel):
+    """
+    用于提取与金钱相关的信息的Pydantic模型。
+    
+    属性:
+        name (str): 名称。
+        Belief (str): 信念。
+        Desire (str): 欲望。
+        Intention (str): 意图。
+        give_money_number (float): 给出的金额数量。
+    """
     name: str
     Belief: str
     Desire: str
@@ -24,6 +36,16 @@ class money_extract(BaseModel):
 
 
 class option_extract(BaseModel):
+    """
+    用于提取选项相关信息的Pydantic模型。
+    
+    属性:
+        name (str): 名称。
+        option_trust_or_not_trust (str): 是否信任的选项。
+        Belief (str): 信念。
+        Desire (str): 欲望。
+        Intention (str): 意图。
+    """
     name: str
     option_trust_or_not_trust: str
     Belief: str
@@ -32,6 +54,16 @@ class option_extract(BaseModel):
 
 
 def check_substring(main_string, string_list=["lottery", "trustee"]):
+    """
+    检查主字符串是否包含字符串列表中的任意子字符串。
+    
+    参数:
+        main_string (str): 主字符串。
+        string_list (list): 子字符串列表，默认为["lottery", "trustee"]。
+    
+    返回:
+        bool: 如果主字符串包含任意子字符串，则返回True；否则返回False。
+    """
     for s in string_list:
         if s in main_string:
             return True
@@ -39,6 +71,17 @@ def check_substring(main_string, string_list=["lottery", "trustee"]):
 
 
 def get_struct_output(input, whether_money=False, test=False):
+    """
+    根据输入内容获取结构化输出。
+    
+    参数:
+        input (str): 输入内容。
+        whether_money (bool): 是否涉及金钱，默认为False。
+        test (bool): 是否为测试模式，默认为False。
+    
+    返回:
+        tuple: 包含提取结果和结构化输出的元组。
+    """
     if test:
         return (1, {})
     if whether_money:
@@ -71,6 +114,15 @@ def get_struct_output(input, whether_money=False, test=False):
 
 
 def extrat_json(folder_path):
+    """
+    遍历文件夹路径，提取JSON文件并生成结构化输出。
+    
+    参数:
+        folder_path (str): 文件夹路径。
+    
+    返回:
+        None
+    """
     dirs_path = os.listdir(folder_path)
     for file in dirs_path:
         if (

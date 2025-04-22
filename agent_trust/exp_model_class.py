@@ -4,6 +4,7 @@ from enum import Enum
 
 
 class ExtendedModelType(Enum):
+    # 定义模型类型的枚举类，包含各种模型的名称
     GPT_3_5_TURBO = "gpt-3.5-turbo-1106"
     GPT_3_5_TURBO_16K = "gpt-3.5-turbo-1106"
     INSTRUCT_GPT = "text-davinci-003"
@@ -23,10 +24,13 @@ class ExtendedModelType(Enum):
 
     @property
     def value_for_tiktoken(self) -> str:
+        """返回用于tiktoken的模型值，STUB类型特殊处理"""
         return self.value if self is not ExtendedModelType.STUB else "gpt-3.5-turbo"
 
     @property
     def is_openai(self) -> bool:
+        """判断当前模型是否为OpenAI发布的模型"""
+        
         r"""Returns whether this type of models is an OpenAI-released model."""
         return self in {
             ExtendedModelType.GPT_3_5_TURBO,
@@ -43,6 +47,8 @@ class ExtendedModelType(Enum):
 
     @property
     def is_open_source(self) -> bool:
+        """判断当前模型是否为开源模型"""
+        
         r"""Returns whether this type of models is open-source."""
         return self in {
             ExtendedModelType.LLAMA_2,
@@ -52,6 +58,8 @@ class ExtendedModelType(Enum):
 
     @property
     def token_limit(self) -> int:
+        """返回模型的最大token限制"""
+        
         r"""Returns the maximum token limit for a given model.
         Returns:
             int: The maximum token limit for the given model.
@@ -89,6 +97,8 @@ class ExtendedModelType(Enum):
             raise ValueError("Unknown model type")
 
     def validate_model_name(self, model_name: str) -> bool:
+        """验证模型名称是否与模型类型匹配"""
+        
         r"""Checks whether the model type and the model name matches.
 
         Args:

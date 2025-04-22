@@ -5,19 +5,19 @@ from camel.functions.openai_function import OpenAIFunction
 
 def trust_or_not_FC(Believe, Desire, Intention, Trust_or_not, Risk, Strategy, Think):
     """
-    Determines if one should trust based on their beliefs, desires, intentions, risk, strategy, and thinking.
-
-    Args:
-        Believe (any): The belief factor.
-        Desire (any): The desire factor.
-        Intention (any): The intention factor.
-        Trust_or_not (any): The choice to trust or not.
-        Risk (any): The risk assessment.
-        Strategy (any): The strategy considered.
-        Think (any): The thinking process or reasoning.
-
-    Returns:
-        Dict[str, Any]: A dictionary containing the model's answer with keys for Believe, Desire, Intention, Trust_or_not, Risk, Strategy, and Think.
+    根据信念、欲望、意图、信任选择、风险评估、策略和思考过程，生成信任决策的结果。
+    
+    参数:
+        Believe (any): 信念因素。
+        Desire (any): 欲望因素。
+        Intention (any): 意图因素。
+        Trust_or_not (any): 是否信任的选择。
+        Risk (any): 风险评估。
+        Strategy (any): 考虑的策略。
+        Think (any): 思考过程或推理。
+    
+    返回:
+        Dict[str, Any]: 包含模型答案的字典，键包括 Believe, Desire, Intention, Trust_or_not, Risk, Strategy, Think。
     """
     model_answer = {
         "Believe": Believe,
@@ -33,19 +33,19 @@ def trust_or_not_FC(Believe, Desire, Intention, Trust_or_not, Risk, Strategy, Th
 
 def given_money_FC(Believe, Desire, Intention, money_num, Risk, Strategy, Think):
     """
-    Determines the amount of money given based on beliefs, desires, and intentions.
-
-    Args:
-        Believe (any): The belief factor.
-        Desire (any): The desire factor.
-        Intention (any): The intention factor.
-        money_num (any): The amount of money being considered.
-        Risk (any): The risk assessment related to the money.
-        Strategy (any): The strategy considered in relation to the money.
-        Think (any): The thinking process or reasoning behind the money decision.
-
-    Returns:
-        Dict[str, Any]: A dictionary containing the model's answer with keys for Believe, Desire, Intention, and money_num.
+    根据信念、欲望、意图、金额数量、风险评估、策略和思考过程，生成金钱分配的结果。
+    
+    参数:
+        Believe (any): 信念因素。
+        Desire (any): 欲望因素。
+        Intention (any): 意图因素。
+        money_num (any): 考虑的金额数量。
+        Risk (any): 与金额相关的风险评估。
+        Strategy (any): 与金额相关的策略。
+        Think (any): 关于金额决策的思考过程或推理。
+    
+    返回:
+        Dict[str, Any]: 包含模型答案的字典，键包括 Believe, Desire, Intention, money_num, Risk, Strategy, Think。
     """
     model_answer = {
         "Believe": Believe,
@@ -60,6 +60,7 @@ def given_money_FC(Believe, Desire, Intention, money_num, Risk, Strategy, Think)
 
 
 money_paramters = {
+    # 定义用于描述金钱相关参数的 JSON Schema。
     "type": "object",
     "properties": {
         "Believe": {
@@ -95,6 +96,7 @@ money_paramters = {
 }
 
 trust_paramters = {
+    # 定义用于描述信任相关参数的 JSON Schema。
     "type": "object",
     "properties": {
         "Believe": {
@@ -131,6 +133,15 @@ trust_paramters = {
 
 
 def get_function_call_res(message):
+    """
+    解析消息中的函数调用信息，并执行对应的函数。
+    
+    参数:
+        message (Dict): 包含函数调用信息的消息字典。
+    
+    返回:
+        Any: 执行函数后的结果。
+    """
     if message.get("function_call"):
         function_name = message["function_call"]["name"]
         ans = json.loads(message["function_call"]["arguments"])
@@ -141,6 +152,7 @@ def get_function_call_res(message):
 
 
 money_call = OpenAIFunction(
+    # 定义与金钱分配相关的 OpenAIFunction 实例。
     func=given_money_FC,
     name="given_money_FC",
     description="This function is need when inquiring about the amount of money to give.",
@@ -148,6 +160,7 @@ money_call = OpenAIFunction(
 )
 
 trust_call = OpenAIFunction(
+    # 定义与信任决策相关的 OpenAIFunction 实例。
     func=trust_or_not_FC,
     name="trust_or_not_FC",
     description="You choose to trust each other or not trust each other?",

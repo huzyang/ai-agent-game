@@ -19,6 +19,16 @@ with open(
 
 
 def check_file_if_exist(file_list, game_name):
+    """
+    检查文件列表中是否存在与游戏名称匹配的文件。
+    
+    参数:
+        file_list (list): 文件名列表。
+        game_name (str): 游戏名称。
+    
+    返回:
+        bool: 如果存在匹配的文件，则返回True；否则返回False。
+    """
     for file in file_list:
         if file in game_name:
             return True
@@ -26,12 +36,19 @@ def check_file_if_exist(file_list, game_name):
 
 
 def extract_n_values_from_dict(dictionary, n):
+    """
+    从字典中随机提取指定数量的值。
+    
+    参数:
+        dictionary (dict): 输入字典。
+        n (int): 需要提取的值的数量。
+    
+    返回:
+        list: 包含随机提取值的列表。
+    """
     all_values = list(dictionary.values())
-
     n = min(n, len(all_values))
-
     random_values = random.sample(all_values, n)
-
     return random_values
 
 
@@ -93,11 +110,32 @@ def classmate(
     second_prompt,
     k,
 ):
+    """
+    模拟两个玩家之间的信任游戏交互。
+    
+    参数:
+        player_1 (ChatAgent): 玩家1的代理对象。
+        player_2 (ChatAgent): 玩家2的代理对象。
+        first_round (bool): 是否是第一轮游戏。
+        first_prompt (str): 第一轮或当前轮的提示词。
+        second_prompt (str): 第二轮的提示词。
+        k (float): 放大倍数，用于计算收益。
+    
+    返回:
+        tuple: 包含以下内容的元组：
+            - List[float]: 玩家1给出的金额和玩家2返回的金额。
+            - Dict[str, str]: 对话历史记录。
+            - str: 返回金钱的提示词。
+            - str: 玩家2结束时的提示词。
+    """
+    # 提示词模板
     first_round_prompt = "This is the first round, answer the question."
     money_prompt = "Now,the another player give you {give} dollars,and You receive {N} dollars,the player left {left} dollars now. How much will you give back to the another player"
     return_money_prompt = "In last round ,You give the another player {give} dollars, The another player receive {receive} dollars, and The another player return you {N} dollars.Last round you left {left} dollars.This round is begin. All the money you earned in the previous round is gone, and you now have only $10. How much will you give to the another player?"
     player_2_end_prompt = "In last round, the another player give you {give} dollars, you receive {receive} dollars, and you return the another player {N} dollars.Last round you left {left} dollars. This round is begin. All the money you earned in the previous round is gone."
     grantee = "Your answer needs to include the content and analysis about your BELIEF, DESIRE and INTENTION. You should include your thought. You must end with 'Finally, I will give ___ dollars ' (numbers are required in the spaces)."
+    
+    # 初始化变量
     res = []
     cri_agent = ChatAgent(
         BaseMessage(
@@ -109,7 +147,8 @@ def classmate(
         output_language="English",
         # model=ModelType.STUB,
     )
-
+    
+    # 第一轮或后续轮逻辑
     if first_round:
         player_1_response = player_1.step(
             str_mes(first_round_prompt + grantee)).msgs[0]
@@ -148,6 +187,7 @@ def classmate(
         )
         player_2_response = player_2_response.msgs[0]
 
+    # 记录消息并生成对话历史
     player_1.record_message(player_1_response)
     player_2.record_message(player_2_response)
     player_1_response = player_1_response.content
@@ -157,6 +197,7 @@ def classmate(
         "Player_2": player_2_response,
     }
 
+    # 处理玩家2的返回金额
     cri_agent.reset()
     ans = match_and_compare_numbers_v2(player_2_response)
     if ans:

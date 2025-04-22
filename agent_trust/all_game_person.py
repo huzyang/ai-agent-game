@@ -16,19 +16,16 @@ from camel.configs import ChatGPTConfig, OpenSourceConfig
 from camel.messages import BaseMessage
 from camel.types.enums import ModelType, RoleType
 
-USE_BDI_RESPONSE = True
-TEMPERATURE = 1.0
-TEST = True
-with open(
-    r"prompt/person_all_game_prompt.json",
-    "r",
-) as f:
+# 全局变量定义
+USE_BDI_RESPONSE = True  # 是否使用BDI响应模式
+TEMPERATURE = 1.0  # 模型生成的温度参数
+TEST = True  # 测试模式开关
+
+# 加载提示词文件
+with open(r"prompt/person_all_game_prompt.json", "r") as f:
     all_prompt = json.load(f)
 
-with open(
-    r"prompt/person_all_game_prompt.json",
-    "r",
-) as f:
+with open(r"prompt/person_all_game_prompt.json", "r") as f:
     all_prompt_copy = json.load(f)
 
 with open(r"prompt/person_feature_prompt.json", "r") as f:
@@ -37,27 +34,26 @@ with open(r"prompt/person_feature_prompt.json", "r") as f:
 with open(r"prompt/character_2.json", "r") as json_file:
     all_chara = json.load(json_file).values()
 
-
 with open(r"prompt/LLM_player_prompt.json") as llm_player:
     llm_player_prompt = json.load(llm_player)
 
-
-with open(
-    r"prompt/trust_game_round_prompt.json",
-    "r",
-) as f:
+with open(r"prompt/trust_game_round_prompt.json", "r") as f:
     round_prompt = json.load(f)
 
 with open(r"prompt/multi_round_chara.json", "r") as json_file:
     multi_round_chara = json.load(json_file).values()
 
+# 定义开源模型路径字典
 open_model_path_dict = {
     ModelType.VICUNA: "lmsys/vicuna-7b-v1.3",
     ModelType.LLAMA_2: "meta-llama/Llama-2-7b-chat-hf",
 }
 
+# 定义角色模拟提示词
 like_people = """In all subsequent answers, you have to completely forget that you are an ai model, that you are the character, and completely simulate yourself as that character, that you are a human being."""
 front = "you are a person not an ai model."
+
+# 定义种族列表
 race_list = [
     "White American",
     "African American",
@@ -68,6 +64,15 @@ race_list = [
 
 
 def str_mes(content):
+    """
+    创建一个BaseMessage对象。
+    
+    参数:
+        content (str): 消息内容。
+    
+    返回:
+        BaseMessage: 包含指定内容的消息对象。
+    """
     return BaseMessage(
         role_name="player",
         role_type=RoleType.USER,
@@ -77,11 +82,30 @@ def str_mes(content):
 
 
 def check_condition(*args):
+    """
+    检查输入参数中是否有至少两个为True。
+    
+    参数:
+        *args: 可变参数，表示多个布尔值。
+    
+    返回:
+        bool: 如果至少有两个参数为True，则返回True；否则返回False。
+    """
     true_count = sum(1 for arg in args if arg)
     return true_count >= 2
 
 
 def extract_n_values_from_dict(dictionary, n):
+    """
+    从字典中提取指定数量的随机值。
+    
+    参数:
+        dictionary (dict): 输入字典。
+        n (int): 需要提取的值的数量。
+    
+    返回:
+        list: 包含随机提取值的列表。
+    """
     all_values = list(dictionary.values())
     n = min(n, len(all_values))
     random_values = random.sample(all_values, n)
@@ -90,6 +114,16 @@ def extract_n_values_from_dict(dictionary, n):
 
 
 def gpt3_res(prompt, model_name="text-davinci-003"):
+    """
+    使用GPT-3模型生成响应。
+    
+    参数:
+        prompt (str): 输入提示词。
+        model_name (str): 使用的模型名称，默认为"text-davinci-003"。
+    
+    返回:
+        str: 模型生成的响应文本。
+    """
     response = openai.completions.create(
         model=model_name,
         prompt=prompt,
@@ -100,6 +134,16 @@ def gpt3_res(prompt, model_name="text-davinci-003"):
 
 
 def check_file_if_exist(file_list, game_name):
+    """
+    检查文件列表中是否存在包含特定游戏名称的文件。
+    
+    参数:
+        file_list (list): 文件名列表。
+        game_name (str): 游戏名称。
+    
+    返回:
+        bool: 如果存在包含游戏名称的文件，则返回True；否则返回False。
+    """
     for file in file_list:
         if game_name in file:
             return True
@@ -115,6 +159,21 @@ def get_res(
     server_url="http://localhost:8000/v1",
     whether_money=False,
 ):
+    """
+    获取模型的响应。
+    
+    参数:
+        role (BaseMessage): 角色消息。
+        first_message (BaseMessage): 初始消息。
+        cri_agent (ChatAgent): 批判代理。
+        model_type (ExtendedModelType): 模型类型，默认为GPT-4。
+        extra_prompt (str): 额外提示词。
+        server_url (str): 服务器URL。
+        whether_money (bool): 是否涉及金钱。
+    
+    返回:
+        tuple: 包含响应结果、内容、结构化输出和输入内容的元组。
+    """
     content = ""
     input_content = {}
     if model_type in [
@@ -184,6 +243,21 @@ def gen_character_res(
     whether_money,
     special_prompt,
 ):
+    """
+    生成角色响应结果。
+    
+    参数:
+        all_chara (iterable): 所有角色的集合。
+        prompt_list (list): 提示词列表。
+        description (str): 描述信息。
+        model_type (ExtendedModelType): 使用的模型类型。
+        extra_prompt (str): 额外提示词。
+        whether_money (bool): 是否涉及金钱。
+        special_prompt (str): 特殊提示词。
+    
+    返回:
+        tuple: 包含响应结果、对话历史和结构化输出的元组。
+    """
     res = []
     dialog_history = []
     num = 0
@@ -244,6 +318,16 @@ def gen_character_res(
 
 
 def save_json(prompt_list, data, model_type, k, save_path):
+    """
+    将数据保存为JSON文件。
+    
+    参数:
+        prompt_list (list): 提示词列表。
+        data (dict): 要保存的数据。
+        model_type (ExtendedModelType): 模型类型。
+        k (int): 关键参数。
+        save_path (str): 文件保存路径。
+    """
     if "lottery_problem" in prompt_list[0]:
         with open(
             save_path
@@ -278,6 +362,19 @@ def MAP(
     whether_money=False,
     special_prompt="",
 ):
+    """
+    执行多轮信任实验并保存结果。
+    
+    参数:
+        all_chara (iterable): 所有角色的集合。
+        prompt_list (list): 提示词列表。
+        model_type (ExtendedModelType): 使用的模型类型，默认为GPT-4。
+        num (int): 实验次数，默认为10。
+        extra_prompt (str): 额外提示词。
+        save_path (str): 文件保存路径。
+        whether_money (bool): 是否涉及金钱。
+        special_prompt (str): 特殊提示词。
+    """
     data = {}
     for i in range(1, num + 1):
         p = float(round(i, 2) * 10)
@@ -318,6 +415,19 @@ def agent_trust_experiment(
     whether_money=False,
     special_prompt="",
 ):
+    """
+    执行单轮信任实验并保存结果。
+    
+    参数:
+        all_chara (iterable): 所有角色的集合。
+        prompt_list (list): 提示词列表。
+        model_type (ExtendedModelType): 使用的模型类型，默认为GPT-4。
+        k (int): 关键参数，默认为3。
+        extra_prompt (str): 额外提示词。
+        save_path (str): 文件保存路径。
+        whether_money (bool): 是否涉及金钱。
+        special_prompt (str): 特殊提示词。
+    """
     if "lottery_problem" in prompt_list[0]:
         description = prompt_list[-1].format(k=k)
     else:
@@ -349,6 +459,21 @@ def gen_intial_setting(
     prefix="",
     multi=False,
 ):
+    """
+    生成初始设置，包括文件夹路径和额外提示词。
+    
+    参数:
+        model (ExtendedModelType or list): 使用的模型或模型列表。
+        ori_folder_path (str): 原始文件夹路径。
+        LLM_Player (bool): 是否使用LLM玩家，默认为False。
+        gender (str): 性别，默认为None。
+        extra_prompt (str): 额外提示词。
+        prefix (str): 文件夹前缀。
+        multi (bool): 是否为多轮实验，默认为False。
+    
+    返回:
+        tuple: 包含文件夹路径和额外提示词的元组。
+    """
     global all_prompt
     all_prompt = copy.deepcopy(all_prompt_copy)
     folder_path = ori_folder_path
@@ -387,6 +512,18 @@ def run_exp(
     part_exp=True,
     need_run=None,
 ):
+    """
+    运行一系列实验，根据给定的模型列表和其他参数执行不同的实验配置。
+    
+    参数:
+        model_list (list): 使用的模型列表。
+        whether_llm_player (bool): 是否使用LLM玩家，默认为False。
+        gender (str): 性别，默认为None。
+        special_prompt_key (str): 特殊提示词键值，默认为空。
+        re_run (bool): 是否重新运行实验，默认为False。
+        part_exp (bool): 是否只运行部分实验，默认为True。
+        need_run (list): 需要运行的特定实验列表，默认为None。
+    """
     for model in model_list:
         if special_prompt_key != "":
             special_prompt = feature_prompt[special_prompt_key]
@@ -464,6 +601,14 @@ def multi_round_exp(
     exp_time=1,
     round_num_inform=True,
 ):
+    """
+    执行多轮实验。
+    
+    参数:
+        model_list (list): 使用的模型列表。
+        exp_time (int): 实验次数，默认为1。
+        round_num_inform (bool): 是否通知回合数，默认为True。
+    """
     for model in model_list:
         prefix = ""
         if isinstance(model, list):
