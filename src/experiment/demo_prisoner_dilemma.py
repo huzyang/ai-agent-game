@@ -54,6 +54,7 @@ def get_llm_decision(player_id: int) -> str:
     )
 
     try:
+        print(f"正在发送请求到 {API_BASE_URL} ...")
         response = client.chat.completions.create(
             model=MODEL,
             messages=[
@@ -63,8 +64,8 @@ def get_llm_decision(player_id: int) -> str:
             temperature=0.7,
             stream=False
         )
-        print(f"正在发送请求到 {API_BASE_URL} ...")
 
+        print(response.model_dump_json())
         answer = response.choices[0].message.content.strip().upper()
         if answer in ["C", "D"]:
             return answer
