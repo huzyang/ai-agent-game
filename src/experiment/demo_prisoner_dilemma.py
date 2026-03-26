@@ -5,12 +5,11 @@
 
 import os
 import random
-import time
 from typing import Tuple, Dict
 from dotenv import load_dotenv
 from openai import OpenAI
 import requests
-# 加载.env 文件中的环境变量
+
 load_dotenv()
 # ==================== 配置 ====================
 # 从环境变量读取 Qwen API 配置
@@ -62,6 +61,7 @@ def get_llm_decision(player_id: int) -> str:
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.7,
+            max_tokens=10,
             stream=False
         )
 
