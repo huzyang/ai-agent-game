@@ -5,13 +5,9 @@ from src.utils import CommonUtils
 __all__ = ["Params"]
 
 
-class ANALYZED_PARAMS(Enum):
-    R = "r" # 信任困境强度
-    P = "p" # 标记为二单形的三角形比例
-    X = "x" # 投资比例
-    Y = "y" # 可信受托者返还比例
-    R_T = "r_t" # 可信受托者倍增因子
-    DELTA = "delta" # 高阶模仿规则参数
+class MODEL_TYPE(Enum):
+    QWEN3_5_FLASH = "qwen3.5-flash"
+    QWEN3_5_MAX = "qwen3.5-max"
 
 class Params:
 

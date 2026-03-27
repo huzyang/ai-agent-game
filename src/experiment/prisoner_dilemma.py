@@ -3,7 +3,7 @@
 """
 
 from typing import List, Tuple, Dict, Any
-from .base_agent import BaseAgent
+from base_agent import BaseAgent
 
 PAYOFF_MATRIX = {
     ("C", "C"): (3, 3),

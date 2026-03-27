@@ -3,7 +3,7 @@
 """
 
 from typing import Dict, Any
-from .base_agent import BaseAgent
+from src.experiment.base_agent import BaseAgent
 import random
 
 

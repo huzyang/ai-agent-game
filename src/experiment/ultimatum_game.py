@@ -3,7 +3,7 @@
 """
 
 from typing import List, Dict, Any
-from .base_agent import BaseAgent
+from base_agent import BaseAgent
 
 
 class UltimatumGame:
