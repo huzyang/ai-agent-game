@@ -14,11 +14,14 @@ class ANALYZED_PARAMS(Enum):
     DELTA = "delta" # 高阶模仿规则参数
 
 class Params:
-    """对称信任博弈参数类"""
 
     def __init__(self):
-        # 模型初始化参数
-        self.N = 400  # 节点数
+        self.N = 9  # 节点数
+        self.p = 0.5  # 自由节点比例
+
+        self.rounds = 2  # 游戏轮数
+
+        ################# 暂时不用的参数 ####################
         self.network_file = CommonUtils.get_project_root_path() + f"/datas/hexagonal_lattice_{self.N}.csv"  # 网络参数
         self.p = 0.5  # 自由节点比例
 
@@ -29,10 +32,6 @@ class Params:
         # 数据收集参数
         self.analyzed_params = [ANALYZED_PARAMS.DELTA.value, ANALYZED_PARAMS.P.value]
         self.collected_datas = ["IT", "IU", "NT", "NU", "GW"] #, "FI", "FT"]
-
-        # 批量运行设置
-        self.iterations = 20
-        self.max_steps = 2
 
     @property
     def model_init_params(self):
@@ -55,6 +54,7 @@ class Params:
         print(f"\n模型初始化参数:")
         print(f"  节点数量 N = {self.N}")
         print(f"  标记为自由节点的比例 p = {self.p}")
+        print(f"  游戏轮数 rounds = {self.rounds}")
 
         print(f"\n网络参数:")
         print(f"  网络配置 network_file = {self.network_file}")
@@ -66,24 +66,20 @@ class Params:
         print(f"  analyzed_params = {self.analyzed_params}")
         print(f"  collected_datas = {self.collected_datas}")
 
-        print(f"\n批量运行设置:")
-        print(f"  iterations = {self.iterations}")
-        print(f"  max_steps = {self.max_steps}")
-
         print(f"{'=' * 50}\n")
 
     def record_params(self):
         """将参数转换为字典"""
         str_result = ""
         str_result += f"\n    \"N\" =  {self.N} "
-        str_result += f"\n    \"network_file\" = \" {self.network_file}\" "
         str_result += f"\n    \"p\" =  {self.p} "
+        str_result += f"\n    \"rounds\" =  {self.rounds} "
+
+        str_result += f"\n    \"network_file\" = \" {self.network_file}\" "
         str_result += f"\n    \"update_interval\" =  {self.update_interval} "
         str_result += f"\n    \"is_normalized\" =  {self.is_normalized} "
         str_result += f"\n\n    \"analyzed_params\" =  {self.analyzed_params} "
         str_result += f"\n    \"collected_datas\" =  {self.collected_datas} "
-        str_result += f"\n\n    \"iterations\" =  {self.iterations} "
-        str_result += f"\n    \"max_steps\" =  {self.max_steps} "
 
         return str_result
     def to_dict(self):

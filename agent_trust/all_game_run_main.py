@@ -504,7 +504,7 @@ if __name__ == "__main__":
     ]
 
     # all ori experiment
-    # run_exp(model_list, part_exp=False)
+    run_exp(model_list, part_exp=False)
     # llm experiment
     # run_exp(model_list, whether_llm_player=1)
     # Gender

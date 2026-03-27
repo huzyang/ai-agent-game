@@ -49,7 +49,7 @@ This guide provides instructions on how to run the trust games demos on your loc
 To run the non-repeated trust game demo, use the following command in your terminal:
 
 ```bash
-python agent_trust/no_repeated_demo.py
+python agent_trust/no_repeated_demo_app.py
 ```
 
 #### Repeated Trust Game Demo
@@ -57,7 +57,7 @@ python agent_trust/no_repeated_demo.py
 For the repeated trust game demo, execute this command:
 
 ```bash
-python agent_trust/repeated_demo.py
+python agent_trust/repeated_demo_app.py
 ```
 
 Running this command will start the demo where the trust game is played repeatedly, illustrating how trust can evolve over repeated interactions.

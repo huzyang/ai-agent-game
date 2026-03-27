@@ -8,6 +8,8 @@ import sys
 import logging
 from datetime import datetime
 
+from src.experiment.params import Params
+
 # 添加当前目录到路径
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
@@ -37,9 +39,10 @@ def setup_logging():
     return logging.getLogger(__name__)
 
 
-def run_prisoner_dilemma(logger):
+def run_prisoner_dilemma(logger,params):
     """运行囚徒困境"""
-    logger.info("=== 囚徒困境 50轮 ===")
+    params.print_all_params()
+    logger.info(f"=== 囚徒困境 {params.rounds}轮 ===")
     # 创建两个智能体，邻居列表相互包含
     agent1 = ConstrainedAgent(agent_id=1, agent_type="constrained", neighbors=[2])
     agent2 = ConstrainedAgent(agent_id=2, agent_type="constrained", neighbors=[1])
@@ -85,15 +88,19 @@ def run_ultimatum_game(logger):
     for i, r in enumerate(history[:3], 1):
         logger.info(f"  第{i}轮: 提议={r['proposer']['offer']}, {'接受' if r['responder']['accepted'] else '拒绝'}, 收益({r['proposer']['payoff']},{r['responder']['payoff']})")
     return history
+def main():
+    # 定义批量运行参数
+    params = Params()
 
-
-if __name__ == "__main__":
     logger = setup_logging()
     logger.info("开始阶段2实验验证")
 
-    # 运行三个博弈
-    pd_history = run_prisoner_dilemma(logger)
+    # 运行博弈实验
+    pd_history = run_prisoner_dilemma(logger, params)
     # tg_history = run_trust_game(logger)
     # ug_history = run_ultimatum_game(logger)
 
     logger.info("阶段2完成，所有博弈已运行50轮，历史记录已保存至日志文件。")
+
+if __name__ == "__main__":
+    main()
