@@ -14,20 +14,12 @@ class Params:
     def __init__(self):
         self.N = 9  # 节点数
         self.p = 0.5  # 自由节点比例
-
         self.rounds = 2  # 游戏轮数
 
-        ################# 暂时不用的参数 ####################
-        self.network_file = CommonUtils.get_project_root_path() + f"/datas/hexagonal_lattice_{self.N}.csv"  # 网络参数
-        self.p = 0.5  # 自由节点比例
-
-        # 演化参数
-        self.is_normalized = True  # 最终payoff统计是否归一化
-        self.update_interval = 1  # 更新间隔
-
-        # 数据收集参数
-        self.analyzed_params = [ANALYZED_PARAMS.DELTA.value, ANALYZED_PARAMS.P.value]
-        self.collected_datas = ["IT", "IU", "NT", "NU", "GW"] #, "FI", "FT"]
+        ################# mesa 模型参数 ####################
+        self.iterations = 1
+        self.number_processes = 4
+        self.data_collection_period = 1
 
     @property
     def model_init_params(self):
@@ -52,16 +44,6 @@ class Params:
         print(f"  标记为自由节点的比例 p = {self.p}")
         print(f"  游戏轮数 rounds = {self.rounds}")
 
-        print(f"\n网络参数:")
-        print(f"  网络配置 network_file = {self.network_file}")
-
-        print(f"\n演化参数:")
-        print(f"  is_normalized = {self.is_normalized}")
-
-        print(f"\n数据收集参数:")
-        print(f"  analyzed_params = {self.analyzed_params}")
-        print(f"  collected_datas = {self.collected_datas}")
-
         print(f"{'=' * 50}\n")
 
     def record_params(self):
@@ -71,11 +53,6 @@ class Params:
         str_result += f"\n    \"p\" =  {self.p} "
         str_result += f"\n    \"rounds\" =  {self.rounds} "
 
-        str_result += f"\n    \"network_file\" = \" {self.network_file}\" "
-        str_result += f"\n    \"update_interval\" =  {self.update_interval} "
-        str_result += f"\n    \"is_normalized\" =  {self.is_normalized} "
-        str_result += f"\n\n    \"analyzed_params\" =  {self.analyzed_params} "
-        str_result += f"\n    \"collected_datas\" =  {self.collected_datas} "
 
         return str_result
     def to_dict(self):
