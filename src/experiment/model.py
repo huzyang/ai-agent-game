@@ -1,20 +1,16 @@
-# model.py - 性能优化版本（修改后）
+""""""
 import os
 from enum import Enum
-
-import mesa
 import numpy as np
-from agents import TrustAgent, StrategyType
+from agents import BaseAgent, StrategyType
 from params import Params
 import typing
-from typing import Literal
-
 import mesa
 from mesa.discrete_space import OrthogonalMooreGrid
 from mesa.examples.advanced.pd_grid.agents import PDAgent
 from mesa.experimental.scenarios import Scenario
-
-params = Params()
+from camel.models import ModelFactory
+from camel.types import ModelPlatformType
 
 class GAME_TYPE(Enum):
     PDG = "pd"
@@ -24,17 +20,15 @@ class PrisonersDilemmaScenario(Scenario):
     """Scenario for Prisoner's Dilemma model."""
     width: int = 2
     height: int = 2
-    payoff: None | dict[tuple[str, str], float] = None
+    payoff: None | dict[tuple[str, str], float] = {
+        ("C", "C"): 1,
+        ("C", "D"): 0,
+        ("D", "C"): 1.6,
+        ("D", "D"): 0,
+    }
     torus: bool = True
 
 class GameModel(mesa.Model):
-    """对称信任博弈演化模型 - 性能优化版本"""
-    PAYOFF_MATRIX = {
-        ("C", "C"): (3, 3),
-        ("C", "D"): (0, 5),
-        ("D", "C"): (5, 0),
-        ("D", "D"): (1, 1),
-    }
     payoff: typing.ClassVar[dict[tuple[str, str], float]] = {
         ("C", "C"): 1,
         ("C", "D"): 0,
@@ -53,17 +47,25 @@ class GameModel(mesa.Model):
         super().__init__(scenario=scenario)
 
         # 模型参数
+        self.params = Params()
         self.N = N
         self.game_type = game_type
         self.grid = OrthogonalMooreGrid(
             (scenario.width, scenario.height), torus=scenario.torus, random=self.random
         )
 
-        # if scenario.payoff is not None:
-        #     self.payoff = scenario.payoff
+        if scenario.payoff is not None:
+            self.payoff_matrix = scenario.payoff
 
+        # 创建LLM模型
+        self.llm_model = ModelFactory.create(
+            model_platform=ModelPlatformType.OPENAI_COMPATIBLE_MODEL,
+            model_type=self.params.model,
+            url=self.params.api_base_url,
+            api_key=self.params.api_key,
+            model_config_dict={"temperature": self.params.temperature, "max_tokens": self.params.max_tokens},
+        )
         # 创建智能体
-        self.create_agents()
         PDAgent.create_agents(
             self, len(self.grid.all_cells.cells), cell=self.grid.all_cells.cells
         )
@@ -83,56 +85,16 @@ class GameModel(mesa.Model):
         self.datacollector.collect(self)
 
 
-    def create_agents(self):
-        """创建智能体并分配初始策略：
-         创建TrustAgent智能体实例
-         设置智能体邻居信息
-        """
-        # 创建智能体
-        for i in range(self.N):
-            agent = TrustAgent(i, self, initial_strategy=self.agents_strategy[i])
-
-            # 设置邻居信息
-            # 1. 添加1-hop邻居（边连接）
-            agent.neighbors_1hop = list(self.nx_graph.neighbors(i))
-
-            # 放置智能体
-            # self.grid.place_agent(agent, i)
-
     def get_agent(self, agent_id):
         """根据ID获取智能体"""
         return self.agents[agent_id]
-
-    def update_strategies(self):
-        """更新策略"""
-        if self.steps == 1:
-            # print(f"No strategy update occurs in the first step")
-            return 0
-        updates = 0
-        if self.activation_order == "Simultaneous":
-            # 同步更新
-            self.agents.do("choose_next_strategy")
-            update_results = self.agents.do("apply_next_strategy")
-            updates = sum(1 for result in update_results if result)
-        elif self.activation_order == "Random":
-            # 随机顺序更新 - 限制更新数量以提高性能
-            self.agents.shuffle_do("update_strategy_fermi")
-            # 需要手动统计更新次数
-            updates = sum(1 for agent in self.agents if agent.update_probability > 0.5)
-
-        self.strategy_change.append(updates)
-        return updates
 
     def step(self):
         """模型每一步的执行"""
         # print("=" * 20 + f"Step {self.steps}..." + "=" * 20)
 
-        # 2. 定期更新策略
-        self.update_strategies()
-
-        # 重置智能体计数和当前收益
-        self.agents.do("reset_counts")
-
+        # 1. 更新策略
+        self.agents.do("decide")
 
         # 5. 计算收益
         self.agents.do("update_payoff")
@@ -157,11 +119,6 @@ class GameModel(mesa.Model):
         """计算平均累计收益"""
         payoffs = [agent.payoff for agent in self.agents]
         return round(np.mean(payoffs), 4) if payoffs else 0.0
-
-    def get_global_payoff(self):
-        """计算全局收益"""
-        payoff = [agent.payoff for agent in self.agents]
-        return round(np.sum(payoff), 4)
 
     def get_strategy_proportion(self, strategy_type):
         """获取策略比例"""

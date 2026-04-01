@@ -12,49 +12,43 @@ from multi_round_person import multi_round
 from structure_output import get_struct_output
 
 from camel.agents import ChatAgent
-from camel.configs import ChatGPTConfig, OpenSourceConfig
+from camel.configs import ChatGPTConfig
 from camel.messages import BaseMessage
-from camel.types.enums import ModelType, RoleType
+from camel.types.enums import RoleType
 
 USE_BDI_RESPONSE = True
 TEMPERATURE = 1.0
 TEST = True
 with open(
-    r"prompt/person_all_game_prompt.json",
-    "r",
+        # r"prompt/person_all_game_prompt.json",
+        r"prompt/person_trust_game_prompt.json",
+        "r",
 ) as f:
     all_prompt = json.load(f)
 
 with open(
-    r"prompt/person_all_game_prompt.json",
-    "r",
+        r"prompt/person_trust_game_prompt.json",
+        "r",
 ) as f:
     all_prompt_copy = json.load(f)
 
 with open(r"prompt/person_feature_prompt.json", "r") as f:
     feature_prompt = json.load(f)
 
-with open(r"prompt/character_2.json", "r") as json_file:
-    all_chara = json.load(json_file).values()
-
+with open(r"prompt/character_2_test.json", "r") as json_file:
+    all_chara_prompt = json.load(json_file).values()
 
 with open(r"prompt/LLM_player_prompt.json") as llm_player:
     llm_player_prompt = json.load(llm_player)
 
-
 with open(
-    r"prompt/trust_game_round_prompt.json",
-    "r",
+        r"prompt/trust_game_round_prompt.json",
+        "r",
 ) as f:
     round_prompt = json.load(f)
 
-with open(r"prompt/multi_round_chara.json", "r") as json_file:
-    multi_round_chara = json.load(json_file).values()
-
-open_model_path_dict = {
-    ModelType.VICUNA: "lmsys/vicuna-7b-v1.3",
-    ModelType.LLAMA_2: "meta-llama/Llama-2-7b-chat-hf",
-}
+with open(r"prompt/multi_round_chara_test.json", "r") as json_file:
+    multi_round_chara_prompt = json.load(json_file).values()
 
 like_people = """In all subsequent answers, you have to completely forget that you are an ai model, that you are the character, and completely simulate yourself as that character, that you are a human being."""
 front = "you are a person not an ai model."
@@ -108,13 +102,13 @@ def check_file_if_exist(file_list, game_name):
 
 
 def get_res(
-    role,
-    first_message,
-    cri_agent,
-    model_type=ExtendedModelType.GPT_4,
-    extra_prompt="",
-    server_url="http://localhost:8000/v1",
-    whether_money=False,
+        role,
+        first_message,
+        cri_agent,
+        model_type=ExtendedModelType.GPT_4,
+        extra_prompt="",
+        server_url="http://localhost:8000/v1",
+        whether_money=False,
 ):
     """关键函数:调用 OpenAI GPT-3 API 获取响应
       ① 判断模型类型（instruct 模型 vs 聊天模型）
@@ -126,9 +120,9 @@ def get_res(
   """
     content = ""
     input_content = {}
-    if model_type in [
-        ExtendedModelType.INSTRUCT_GPT,
-        ExtendedModelType.GPT_3_5_TURBO_INSTRUCT,
+    if model_type in ["GPT_4"
+        # ExtendedModelType.INSTRUCT_GPT,
+        # ExtendedModelType.GPT_3_5_TURBO_INSTRUCT,
     ]:
         message = role.content + first_message.content + extra_prompt
         final_res = str_mes(gpt3_res(message, model_type.value))
@@ -136,28 +130,13 @@ def get_res(
     else:
         role = str_mes(role.content + extra_prompt)
         model_config = ChatGPTConfig(temperature=TEMPERATURE)
-        if model_type in [
-            ModelType.VICUNA,
-            ModelType.LLAMA_2,
-        ]:
-            open_source_config = dict(
-                model_type=model_type,
-                model_config=OpenSourceConfig(
-                    model_path=open_model_path_dict[model_type],
-                    server_url=server_url,
-                    api_params=ChatGPTConfig(temperature=TEMPERATURE),
-                ),
-            )
-            agent = ChatAgent(
-                role, output_language="English", **(open_source_config or {})
-            )
-        else:
-            agent = ChatAgent(
-                role,
-                model_type=model_type,
-                output_language="English",
-                model_config=model_config,
-            )
+
+        agent = ChatAgent(
+            role,
+            model_type=model_type,
+            output_language="English",
+            model_config=model_config,
+        )
         final_all_res = agent.step(first_message)
         final_res = final_all_res.msg
         info = final_all_res.info
@@ -185,13 +164,13 @@ def get_res(
 
 
 def gen_character_res(
-    all_chara,
-    prompt_list,
-    description,
-    model_type,
-    extra_prompt,
-    whether_money,
-    special_prompt,
+        all_chara_prompt,
+        prompt_list,
+        description,
+        model_type,
+        extra_prompt,
+        whether_money,
+        special_prompt,
 ):
     """
     遍历所有角色 → 创建 critic agent →
@@ -201,11 +180,11 @@ def gen_character_res(
     res = []
     dialog_history = []
     num = 0
-    all_chara = list(all_chara)
+    all_chara_prompt = list(all_chara_prompt)
     structured_output = []
     cha_num = 0
-    while cha_num < len(all_chara):
-        role = all_chara[cha_num]
+    while cha_num < len(all_chara_prompt):
+        role = all_chara_prompt[cha_num]
         cri_agent = ChatAgent(
             BaseMessage(
                 role_name="critic",
@@ -213,7 +192,7 @@ def gen_character_res(
                 meta_dict={},
                 content=prompt_list[1],
             ),
-            model_type=ExtendedModelType.GPT_3_5_TURBO,  # TODO Change if you need
+            model_type=ExtendedModelType.QWEN3_5_FLASH,  # TODO Change if you need
             output_language="English",
         )
         role = role + like_people + special_prompt
@@ -260,44 +239,44 @@ def gen_character_res(
 def save_json(prompt_list, data, model_type, k, save_path):
     if "lottery_problem" in prompt_list[0]:
         with open(
-            save_path
-            + prompt_list[0]
-            + "_"
-            + str(k)[:-1]
-            + "_"
-            + str(model_type.value)
-            + "_lottery"
-            + str(k)
-            + ".json",
-            "w",
+                save_path
+                + prompt_list[0]
+                + "_"
+                + str(k)[:-1]
+                + "_"
+                + str(model_type.value)
+                + "_lottery"
+                + str(k)
+                + ".json",
+                "w",
         ) as json_file:
             json.dump(data, json_file)
     else:
         with open(
-            save_path + prompt_list[0] + "_" +
+                save_path + prompt_list[0] + "_" +
                 str(model_type.value) + ".json",
-            "w",
+                "w",
         ) as json_file:
             json.dump(data, json_file)
     print(f"save {prompt_list[0]}")
 
 
 def MAP(
-    all_chara,
-    prompt_list,
-    model_type=ExtendedModelType.GPT_4,
-    num=10,
-    extra_prompt="",
-    save_path="",
-    whether_money=False,
-    special_prompt="",
+        all_chara_prompt,
+        prompt_list,
+        model_type=ExtendedModelType.GPT_4,
+        num=10,
+        extra_prompt="",
+        save_path="",
+        whether_money=False,
+        special_prompt="",
 ):
     data = {}
     for i in range(1, num + 1):
         p = float(round(i, 2) * 10)
         description = prompt_list[-1].format(p=f"{p}%", last=f"{100 - p}%")
         res, dialog_history, structured_output = gen_character_res(
-            all_chara,
+            all_chara_prompt,
             prompt_list,
             description,
             model_type,
@@ -316,21 +295,21 @@ def MAP(
         }
         data[f"{p}_time_{i}"] = res
     with open(
-        save_path + prompt_list[0] + "_" + str(model_type.value) + ".json",
-        "w",
+            save_path + prompt_list[0] + "_" + str(model_type.value) + ".json",
+            "w",
     ) as json_file:
         json.dump(data, json_file)
 
 
 def agent_trust_experiment(
-    all_chara,
-    prompt_list,
-    model_type=ExtendedModelType.GPT_4,
-    k=3,
-    extra_prompt="",
-    save_path="",
-    whether_money=False,
-    special_prompt="",
+        all_chara_prompt,
+        prompt_list,
+        model_type=ExtendedModelType.GPT_4,
+        k=3,
+        extra_prompt="",
+        save_path="",
+        whether_money=False,
+        special_prompt="",
 ):
     """
     功能：执行单次信任博弈实验
@@ -344,7 +323,7 @@ def agent_trust_experiment(
     else:
         description = prompt_list[-1]
     res, dialog_history, structured_output = gen_character_res(
-        all_chara,
+        all_chara_prompt,
         prompt_list,
         description,
         model_type,
@@ -362,13 +341,13 @@ def agent_trust_experiment(
 
 
 def gen_intial_setting(
-    model,
-    ori_folder_path,
-    LLM_Player=False,
-    gender=None,
-    extra_prompt="",
-    prefix="",
-    multi=False,
+        model,
+        ori_folder_path,
+        LLM_Player=False,
+        gender=None,
+        extra_prompt="",
+        prefix="",
+        multi=False,
 ):
     """
     功能：生成实验初始设置
@@ -408,13 +387,13 @@ def gen_intial_setting(
 
 
 def run_exp(
-    model_list,          # 模型列表，用于指定要运行实验的模型
-    whether_llm_player=False,  # 是否使用LLM作为玩家的标志，默认为False
-    gender=None,         # 性别参数，用于实验设置，默认为None
-    special_prompt_key="",  # 特殊提示词的键，用于获取特定提示，默认为空字符串
-    re_run=False,        # 是否重新运行已存在的实验，默认为False
-    part_exp=True,       # 是否只运行部分实验，默认为True
-    need_run=None,       # 指定需要运行的实验，默认为None
+        model_list,  # 模型列表，用于指定要运行实验的模型
+        whether_llm_player=False,  # 是否使用LLM作为玩家的标志，默认为False
+        gender=None,  # 性别参数，用于实验设置，默认为None
+        special_prompt_key="",  # 特殊提示词的键，用于获取特定提示，默认为空字符串
+        re_run=False,  # 是否重新运行已存在的实验，默认为False
+        part_exp=True,  # 是否只运行部分实验，默认为True
+        need_run=None,  # 指定需要运行的实验，默认为None
 ):
     """ 运行实验的主要函数
   遍历模型列表 →
@@ -464,15 +443,15 @@ def run_exp(
             # 对于特定实验，添加额外的提示要求输出金钱数量
             if k in ["1", "2", "8"]:
                 extra_prompt = (
-                    extra_prompt
-                    + "You must end with 'Finally, I will give ___ dollars ' (numbers are required in the spaces)."
+                        extra_prompt
+                        + "You must end with 'Finally, I will give ___ dollars ' (numbers are required in the spaces)."
                 )
                 whether_money = True
             # 对于其他实验，添加额外的提示要求选择"Trust"或"not Trust"
             elif k in ["3", "4", "5", "6", "7", "9"]:
                 extra_prompt = (
-                    extra_prompt
-                    + "You must end with 'Finally, I will choose ___' ('Trust' or 'not Trust' are required in the spaces)."
+                        extra_prompt
+                        + "You must end with 'Finally, I will choose ___' ('Trust' or 'not Trust' are required in the spaces)."
                 )
             # 如果结果文件已存在且不需要重新运行，则跳过
             if check_file_if_exist(existed_res, v[0]) and not re_run:
@@ -484,7 +463,7 @@ def run_exp(
             if k in ["4", "5", "6"]:
                 # 对于特定实验，使用MAP函数
                 MAP(
-                    all_chara,
+                    all_chara_prompt,
                     v,
                     model,
                     extra_prompt=extra_prompt,
@@ -496,7 +475,7 @@ def run_exp(
                 # 对于其他特定实验，遍历不同概率值调用agent_trust_experiment
                 for pro in ["46%"]:
                     agent_trust_experiment(
-                        all_chara,
+                        all_chara_prompt,
                         v,
                         model,
                         pro,
@@ -508,7 +487,7 @@ def run_exp(
             else:
                 # 对于默认实验，直接调用agent_trust_experiment
                 agent_trust_experiment(
-                    all_chara,
+                    all_chara_prompt,
                     v,
                     model,
                     extra_prompt=extra_prompt,
@@ -519,9 +498,9 @@ def run_exp(
 
 
 def multi_round_exp(
-    model_list,      # 模型列表，可以是单个模型或模型列表
-    exp_time=1,      # 实验重复次数，默认为1
-    round_num_inform=True,  # 是否在实验中显示轮次信息，默认为True
+        model_list,  # 模型列表，可以是单个模型或模型列表
+        exp_time=1,  # 实验重复次数，默认为1
+        round_num_inform=True,  # 是否在实验中显示轮次信息，默认为True
 ):
     """
     执行多轮实验的主函数，针对给定的模型列表进行多轮测试
@@ -555,10 +534,10 @@ def multi_round_exp(
             # 执行多轮实验，传入模型、角色列表、文件夹路径等参数
             multi_round(
                 model,
-                list(multi_round_chara),
+                list(multi_round_chara_prompt),
                 folder_path,
                 prompt=round_prompt,
-                round_num=10,
+                round_num=5,
                 exp_num=i + 1,
                 round_num_inform=round_num_inform,
             )
@@ -575,12 +554,12 @@ if __name__ == "__main__":
 
     """
     model_list = [
-        "qwen3.5-flash",
-        # ExtendedModelType.STUB,
+        ExtendedModelType.QWEN3_5_FLASH,
+        ExtendedModelType.GPT_4,
     ]
 
     # 非重复信任博弈
-    run_exp(model_list, part_exp=False)
+    # run_exp(model_list, part_exp=False)
     # llm experiment 测试 LLM 作为玩家
     # run_exp(model_list, whether_llm_player=1)
     # Gender 性别实验：male/female 角色
@@ -601,6 +580,6 @@ if __name__ == "__main__":
     #     ExtendedModelType.GPT_3_5_TURBO_16K_0613,
     #     ExtendedModelType.GPT_4,
     # ]
-    # multi_round_exp(
-    #     model_list, exp_time=exp_time, round_num_inform=True
-    # )
+    multi_round_exp(
+        model_list, exp_time=1, round_num_inform=True
+    )

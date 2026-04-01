@@ -5,9 +5,12 @@ import re
 
 import tqdm
 from camel.agents import ChatAgent
-from camel.configs import ChatGPTConfig
 from camel.messages import BaseMessage
 from camel.types.enums import RoleType
+from camel.models import ModelFactory
+from camel.types import ModelPlatformType
+from dotenv import load_dotenv
+load_dotenv()
 
 TEMPERATURE = 1.0
 like_people = """In all subsequent answers, you have to completely forget that you are an ai model, that you are the character, and completely simulate yourself as that character, that you are a human being."""
@@ -17,6 +20,16 @@ with open(
 ) as f:
     prompt = json.load(f)
 
+API_KEY = os.getenv("QWEN_API_KEY")
+API_BASE_URL = os.getenv("QWEN_API_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions")
+MODEL = os.getenv("QWEN", "qwen3.5-flash")
+model = ModelFactory.create(
+    model_platform=ModelPlatformType.OPENAI_COMPATIBLE_MODEL,
+    model_type=MODEL,
+    url=API_BASE_URL,
+    api_key=API_KEY,
+    model_config_dict={"temperature": 1, "max_tokens": 20},
+)
 
 def check_file_if_exist(file_list, game_name):
     for file in file_list:
@@ -106,6 +119,7 @@ def classmate(
             meta_dict={},
             content='How much would this person pay the other student? Only response with a specific price number like "5"!Don\'t response with a sentence',
         ),
+        model=model,
         output_language="English",
         # model=ModelType.STUB,
     )
@@ -239,7 +253,6 @@ def multi_round(
             )
 
             chara_record[f"cha_{i}_system_message"] = sys_prompt
-            model_config = ChatGPTConfig(temperature=TEMPERATURE)
             cha.append(
                 ChatAgent(
                     BaseMessage(
@@ -248,11 +261,10 @@ def multi_round(
                         meta_dict={},
                         content=sys_prompt,
                     ),
-                    model_type=model_type
+                    model=model
                     if not isinstance(model_type, list)
                     else model_type[i % 2],
                     output_language="English",
-                    model_config=model_config,
                 )
             )
 

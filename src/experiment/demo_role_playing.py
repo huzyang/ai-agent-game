@@ -4,9 +4,9 @@ from camel.societies import RolePlaying
 from camel.utils import print_text_animated
 from camel.models import ModelFactory
 from camel.types import ModelPlatformType
-from dotenv import load_dotenv
 import os
 
+from dotenv import load_dotenv
 load_dotenv()
 
 # ==================== 配置 ====================

@@ -39,19 +39,10 @@ def run_batch_experiment(params):
     import time
     start_time = time.time()
 
-    results = mesa.batch_run(
-        GameModel,
-        parameters=params.model_init_params,
-        iterations=params.iterations,
-        max_steps=params.max_steps,
-        number_processes=params.number_processes,
-        data_collection_period=params.data_collection_period,
-        display_progress=True,
-    )
+    # 调用model 运行
 
     run_time = time.time() - start_time
     print(f"批量运行完成，耗时: {run_time:.2f}秒")
-    print(f"总共运行次数: {len(results)}")
 
     # 创建输出目录
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -59,8 +50,8 @@ def run_batch_experiment(params):
     os.makedirs(output_dir, exist_ok=True)
 
     # 转换为DataFrame并保存
-    results_df = pd.DataFrame(results)
-    results_df.to_csv(os.path.join(output_dir, f"{timestamp}_all_results.csv"), index=False)
+    # results_df = pd.DataFrame(results)
+    # results_df.to_csv(os.path.join(output_dir, f"{timestamp}_all_results.csv"), index=False)
 
     # 保存运行摘要
     summary = f"""LLM multi Agent 实验摘要
@@ -77,15 +68,20 @@ def run_batch_experiment(params):
 
     print(f"结果已保存到: {output_dir}")
 
-    return results, output_dir, timestamp
+    return True
+
+def run_experiment(params):
+    """运行单个实验"""
+
+    return True
 
 def main():
     """主函数"""
     # 定义批量运行参数
     params = Params()
-
+    result = run_experiment(params)
     # 运行批量实验
-    results, output_dir, timestamp = run_batch_experiment(params=params)
+    results = run_batch_experiment(params=params)
 
     # 结果分析与保存
 

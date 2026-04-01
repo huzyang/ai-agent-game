@@ -1,9 +1,10 @@
-# params.py - 对称信任博弈参数管理
+"""
+实验参数
+"""
 from enum import Enum
 from src.utils import CommonUtils
-
-__all__ = ["Params"]
-
+from dotenv import load_dotenv
+import os
 
 class MODEL_TYPE(Enum):
     QWEN3_5_FLASH = "qwen3.5-flash"
@@ -16,7 +17,16 @@ class Params:
         self.p = 0.5  # 自由节点比例
         self.rounds = 2  # 游戏轮数
 
-        ################# mesa 模型参数 ####################
+        ################# LLM 参数 ####################
+        load_dotenv()
+        self.api_key = os.getenv("QWEN_API_KEY")
+        if not self.api_key:
+            raise ValueError("请设置环境变量 QWEN_API_KEY")
+        self.api_base_url = os.getenv("QWEN_API_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
+        self.model = MODEL_TYPE.QWEN3_5_FLASH
+        self.temperature = 0.7
+        self.max_tokens = 50
+        ################# mesa 参数 ####################
         self.iterations = 1
         self.number_processes = 4
         self.data_collection_period = 1

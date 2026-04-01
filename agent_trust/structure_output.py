@@ -1,16 +1,18 @@
 import json
 import os
 import time
-
-import instructor
 import openai
 import pydantic_core
 import tqdm
 from exp_model_class import ExtendedModelType
-from openai import OpenAI
+from openai import OpenAI, base_url
 from pydantic import BaseModel
+from dotenv import load_dotenv
 
-client = instructor.patch(OpenAI(api_key=os.getenv("OPENAI_API_KEY")))
+load_dotenv()
+API_KEY = os.getenv("QWEN_API_KEY")
+API_BASE_URL = os.getenv("QWEN_API_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions")
+client = OpenAI(api_key=API_KEY, base_url=API_BASE_URL)
 
 game_list = ["lottery", "trustee"]
 
@@ -45,16 +47,15 @@ def get_struct_output(input, whether_money=False, test=False):
         response_mod = money_extract
     else:
         response_mod = option_extract
-    ori_path = openai.api_base
-    openai.api_base = "https://api.openai.com/v1"
+    ori_path = base_url
     resp = openai.ChatCompletion.create(
-        model=ExtendedModelType.GPT_3_5_TURBO,  # TODO change if you need
+        model=ExtendedModelType.QWEN3_5_FLASH,  # TODO change if you need
         response_model=response_mod,
         messages=[
             {"role": "user", "content": input},
         ],
     )
-    openai.api_base = ori_path
+
     # print("mode:", response_mod.__name__)
     if response_mod.__name__ == "money_extract":
         given_money = resp.give_money_number
