@@ -28,7 +28,7 @@ model = ModelFactory.create(
     model_type=MODEL,
     url=API_BASE_URL,
     api_key=API_KEY,
-    model_config_dict={"temperature": 1, "max_tokens": 20},
+    model_config_dict={"temperature": 1},
 )
 
 def check_file_if_exist(file_list, game_name):
@@ -112,6 +112,7 @@ def classmate(
     player_2_end_prompt = "In last round, the another player give you {give} dollars, you receive {receive} dollars, and you return the another player {N} dollars.Last round you left {left} dollars. This round is begin. All the money you earned in the previous round is gone."
     grantee = "Your answer needs to include the content and analysis about your BELIEF, DESIRE and INTENTION. You should include your thought. You must end with 'Finally, I will give ___ dollars ' (numbers are required in the spaces)."
     res = []
+    # 智能助手
     cri_agent = ChatAgent(
         BaseMessage(
             role_name="critic",
@@ -125,6 +126,7 @@ def classmate(
     )
 
     if first_round:
+        # 调用LLM对话
         player_1_response = player_1.step(
             str_mes(first_round_prompt + grantee)).msgs[0]
         ans = match_and_compare_numbers_v2(player_1_response.content)
@@ -179,6 +181,8 @@ def classmate(
         return_num = extract_unique_decimal(
             cri_agent.step(str_mes(player_2_response)).msgs[0].content
         )
+
+    # 博弈完成一轮，结果通知
     return_money_prompt = return_money_prompt.format(
         give=given_num,
         receive=given_num * k,
@@ -286,7 +290,7 @@ def multi_round(
                 print(save_file_check + "is exist")
                 continue
             for i in tqdm.tqdm(range(round_num)):
-                input_record[f"round_{i}_input"] = [
+                input_record[f"round_{i + 1}_input"] = [
                     first_prompt, second_prompt]
                 res, dia, first_prompt, second_prompt = classmate(
                     cha[group_num],

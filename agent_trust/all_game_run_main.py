@@ -537,7 +537,7 @@ def multi_round_exp(
                 list(multi_round_chara_prompt),
                 folder_path,
                 prompt=round_prompt,
-                round_num=5,
+                round_num=2,
                 exp_num=i + 1,
                 round_num_inform=round_num_inform,
             )
