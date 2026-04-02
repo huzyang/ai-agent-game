@@ -1,61 +1,54 @@
 """"""
 import os
-from enum import Enum
+import json
 import numpy as np
-from agents import BaseAgent, StrategyType
+from agents import BaseAgent
 from params import Params
-import typing
+from src.utils import CommonUtils
+
 import mesa
-from mesa.discrete_space import OrthogonalMooreGrid
-from mesa.examples.advanced.pd_grid.agents import PDAgent
-from mesa.experimental.scenarios import Scenario
+from mesa.discrete_space import OrthogonalVonNeumannGrid
+
 from camel.models import ModelFactory
 from camel.types import ModelPlatformType
+from camel.agents import ChatAgent
+from camel.messages import BaseMessage
+from camel.types.enums import RoleType
 
-class GAME_TYPE(Enum):
-    PDG = "pd"
-    TRUST = "trust"
+with open(os.path.join(CommonUtils.get_project_root_path(), "src/prompts/trust_game_round_prompt.json"), "r") as f:
+    trust_game_round_prompt = json.load(f)
 
-class PrisonersDilemmaScenario(Scenario):
-    """Scenario for Prisoner's Dilemma model."""
-    width: int = 2
-    height: int = 2
-    payoff: None | dict[tuple[str, str], float] = {
-        ("C", "C"): 1,
-        ("C", "D"): 0,
-        ("D", "C"): 1.6,
-        ("D", "D"): 0,
-    }
-    torus: bool = True
+with open(os.path.join(CommonUtils.get_project_root_path(), "src/prompts/character_test.json"), "r") as json_file:
+    chara_prompt = json.load(json_file).values()
+
+like_people = """In all subsequent answers, you have to completely forget that you are an ai model, that you are the character, and completely simulate yourself as that character, that you are a human being."""
+front = "you are a person not an ai model."
+limited_prompt = "You will repeat this game for {round_num} rounds. At the begining of each round, you will start from scratch with no dollars left."
+unlimited_prompt = "You don't know how many rounds the game lasts. At the begining of each round, you will start from scratch with no dollars left."
+back = "you need to answer a specific price figure, not a price range!"
+
 
 class GameModel(mesa.Model):
-    payoff: typing.ClassVar[dict[tuple[str, str], float]] = {
-        ("C", "C"): 1,
-        ("C", "D"): 0,
-        ("D", "C"): 1.6,
-        ("D", "D"): 0,
-    }
+
     def __init__(
-        self,
-        N = 4,    # 节点数量
-        game_type=GAME_TYPE.TRUST,
-        scenario: PrisonersDilemmaScenario = PrisonersDilemmaScenario,
+            self,
+            width=2,
+            height=2,
+            game_type="trust_game",
+            seed=40
     ):
         """
-        初始化信任博弈模型
+
         """
-        super().__init__(scenario=scenario)
+        super().__init__(rng=seed)
 
-        # 模型参数
+        # 初始化model
         self.params = Params()
-        self.N = N
         self.game_type = game_type
-        self.grid = OrthogonalMooreGrid(
-            (scenario.width, scenario.height), torus=scenario.torus, random=self.random
-        )
+        self.payoff_matrix = None
 
-        if scenario.payoff is not None:
-            self.payoff_matrix = scenario.payoff
+        # 创建网格
+        self.grid = OrthogonalVonNeumannGrid((width, height), torus=True, random=self.random)
 
         # 创建LLM模型
         self.llm_model = ModelFactory.create(
@@ -63,12 +56,11 @@ class GameModel(mesa.Model):
             model_type=self.params.model,
             url=self.params.api_base_url,
             api_key=self.params.api_key,
-            model_config_dict={"temperature": self.params.temperature, "max_tokens": self.params.max_tokens},
+            model_config_dict={"temperature": self.params.temperature},
         )
-        # 创建智能体
-        PDAgent.create_agents(
-            self, len(self.grid.all_cells.cells), cell=self.grid.all_cells.cells
-        )
+
+        # 给代理设置ChatAgent（1、人物 2、根据不同的博弈类型设置初始提示词（不是第一轮））
+        self.create_agents()
 
         self.datacollector = mesa.DataCollector(
             model_reporters={
@@ -81,9 +73,34 @@ class GameModel(mesa.Model):
             # }
         )
 
-        self.running = True
-        self.datacollector.collect(self)
-
+    def create_agents(self):
+        characters = list(chara_prompt)
+        i = 0
+        for x in range(self.params.width):
+            for y in range(self.params.height):
+                agent = BaseAgent(model=self, unique_id=i, cell=self.grid[(x, y)])
+                sys_prompt = (
+                        characters[i]
+                        + like_people
+                        + front
+                        + limited_prompt
+                        + str(trust_game_round_prompt[str(i % 2 + 1)]).format(k=3)  # TODO 对称信任博弈
+                        + back
+                )
+                # 设置ChatAgent
+                agent.set_llm_agent(
+                    ChatAgent(
+                        BaseMessage(
+                            role_name="player",
+                            role_type=RoleType.USER,
+                            meta_dict={},
+                            content=sys_prompt,
+                        ),
+                        model=self.llm_model,
+                        output_language="English",
+                    )
+                )
+                i = i + 1
 
     def get_agent(self, agent_id):
         """根据ID获取智能体"""
@@ -125,31 +142,14 @@ class GameModel(mesa.Model):
         count = sum(1 for agent in self.agents if agent.strategy == strategy_type)
         return round(count / self.N, 4) if self.N > 0 else 0.0
 
-
-    def run_model(self, max_steps=100):
+    def run_model(self, max_round=100):
         """运行模型指定步数"""
-        self.max_steps = max_steps
-        for i in range(max_steps):
+
+        for i in range(max_round):
             self.step()
 
         self.print_final_stats()
 
     def print_final_stats(self):
         """打印最终统计信息"""
-        print(f"\n最终统计:")
-        # print(f"  平均累计收益: {self.get_avg_payoff():.4f}")
-        print(f"  全局收益总和: {self.get_global_payoff():.4f}")
-        # print(f"  总成对博弈次数: {sum(len(a.pairwise_games_payoffs) for a in self.agents)}")
-        # print(f"  总群组博弈次数: {sum(len(a.group_games_payoffs) for a in self.agents)}")
-        # print(f"  总策略更新次数: {sum(len(a.strategy_history) for a in self.agents)}")
-
-        print(f"\n最终策略分布:")
-        print(f"  IT: {self.get_strategy_proportion(StrategyType.IT):.3f} "
-              f"({sum(1 for a in self.agents if a.strategy == StrategyType.IT)}个)")
-        print(f"  IU: {self.get_strategy_proportion(StrategyType.IU):.3f} "
-              f"({sum(1 for a in self.agents if a.strategy == StrategyType.IU)}个)")
-        print(f"  NT: {self.get_strategy_proportion(StrategyType.NT):.3f} "
-              f"({sum(1 for a in self.agents if a.strategy == StrategyType.NT)}个)")
-        print(f"  NU: {self.get_strategy_proportion(StrategyType.NU):.3f} "
-              f"({sum(1 for a in self.agents if a.strategy == StrategyType.NU)}个)")
-
+        print(f"\n============================= 运行完成！=================================")

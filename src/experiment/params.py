@@ -10,12 +10,19 @@ class MODEL_TYPE(Enum):
     QWEN3_5_FLASH = "qwen3.5-flash"
     QWEN3_5_MAX = "qwen3.5-max"
 
+class GameType(Enum):
+    PDG = "pd_game"
+    TRUST = "trust_game"
+
 class Params:
 
     def __init__(self):
-        self.N = 9  # 节点数
+        self.N = 4  # 节点数
+        self.width: int =  int(self.N ** 0.5)  # 根号 N
+        self.height: int = self.width
         self.p = 0.5  # 自由节点比例
         self.rounds = 2  # 游戏轮数
+        self.game_type = GameType.TRUST.value
 
         ################# LLM 参数 ####################
         load_dotenv()
@@ -25,7 +32,7 @@ class Params:
         self.api_base_url = os.getenv("QWEN_API_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
         self.model = MODEL_TYPE.QWEN3_5_FLASH
         self.temperature = 0.7
-        self.max_tokens = 50
+        self.max_tokens = 4096
         ################# mesa 参数 ####################
         self.iterations = 1
         self.number_processes = 4
