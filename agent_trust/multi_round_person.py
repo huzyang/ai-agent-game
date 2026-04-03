@@ -256,7 +256,7 @@ def multi_round(
                 + back
             )
 
-            chara_record[f"cha_{i}_system_message"] = sys_prompt
+            chara_record[f"cha_{i}_system_message"] = sys_prompt # 记录
             cha.append(
                 ChatAgent(
                     BaseMessage(

@@ -1,0 +1,84 @@
+[
+  {
+    "initial_sys_prompt": [
+      {
+        "agent_0_cell(0,0)": "You are Emily Johnson, a 28-year-old female software engineer residing in New York City."
+      },
+      {
+        "agent_1_cell(0,1)": ""
+      }
+    ]
+  },
+  {
+    "input_record": [
+      {
+        "round_1": [
+          {
+            "agent_0": [
+              {
+                "investor_agent_0": "How much money would you give to this person?"
+              },
+              {
+                "trustee_agent_1": "Then, you can choose how much to give back to this person."
+              },
+              {
+                "trustee_agent_2": "Then, you can choose how much to give back to this person."
+              },
+              {
+                "trustee_agent_3": "Then, you can choose how much to give back to this person."
+              },
+              {
+                "trustee_agent_6": "Then, you can choose how much to give back to this person."
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "round_2": [
+          {
+          },
+          {
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "output_record": [
+      {
+        "round_1": [
+          {
+            "agent_0": [
+              {
+                "investor_agent_0": "Finally, I will give 4 dollars"
+              },
+              {
+                "trustee_agent_1": "Finally, I will return 8.00 dollars"
+              },
+              {
+                "trustee_agent_2": "Finally, I will return 8.00 dollars"
+              },
+              {
+                "trustee_agent_3": "Finally, I will return 8.00 dollars"
+              },
+              {
+                "trustee_agent_6": "Finally, I will return 8.00 dollars"
+              }
+            ]
+          },
+          {
+          }
+        ]
+      },
+      {
+        "round_2": [
+          {
+          },
+          {
+          }
+        ]
+      }
+    ]
+  }
+]

@@ -49,7 +49,7 @@ class GameModel(mesa.Model):
 
         # 创建网格
         self.grid = OrthogonalVonNeumannGrid((width, height), torus=True, random=self.random)
-
+        self.neighbor_pairs = self.get_all_neighbor_pairs()
         # 创建LLM模型
         self.llm_model = ModelFactory.create(
             model_platform=ModelPlatformType.OPENAI_COMPATIBLE_MODEL,
@@ -58,6 +58,16 @@ class GameModel(mesa.Model):
             api_key=self.params.api_key,
             model_config_dict={"temperature": self.params.temperature},
         )
+        self.critic_agent = ChatAgent(
+            BaseMessage(
+                role_name="critic",
+                role_type=RoleType.ASSISTANT,
+                meta_dict={},
+                content="格式化输出",
+            ),
+            model=self.llm_model,
+            output_language="English",
+        )
 
         # 给代理设置ChatAgent（1、人物 2、根据不同的博弈类型设置初始提示词（不是第一轮））
         self.create_agents()
@@ -65,13 +75,41 @@ class GameModel(mesa.Model):
         self.datacollector = mesa.DataCollector(
             model_reporters={
                 "Cooperating_Agents": lambda m: len(
-                    [a for a in m.agents if a.move == "C"]
+                    [a for a in m.agents if a.strategy == "C"]
                 )
             },
             # agent_reporters={
             #     # "Strategy": lambda a: StrategyType.get_strategy_name(a.strategy),
             # }
         )
+
+    def get_all_neighbor_pairs(self) -> list:
+        """
+        获取网格中所有的邻居对。
+        例如 [[0,1,2],[3,4,5],[6,7,8]] 中，0 号节点的邻居对有 [0,1],[0,3],[0,2],[0,6]
+        返回格式：[[agent_id_1, agent_id_2], ...]
+        """
+        neighbor_pairs = []
+        width = self.params.width
+        height = self.params.height
+
+        # 遍历所有节点
+        for x in range(width):
+            for y in range(height):
+                agent_id = x * height + y
+
+                # 获取该位置的所有邻居（冯·诺依曼邻域：上下左右）
+                cell = self.grid[(x, y)]
+                neighbors = list(cell.neighborhood.agents)
+
+                # 将当前节点与每个邻居组成对
+                for neighbor in neighbors:
+                    neighbor_id = neighbor.unique_id
+                    # 避免重复，只添加 id 小的在前面的对
+                    if agent_id < neighbor_id:
+                        neighbor_pairs.append([agent_id, neighbor_id])
+
+        return neighbor_pairs
 
     def create_agents(self):
         characters = list(chara_prompt)
@@ -101,6 +139,7 @@ class GameModel(mesa.Model):
                     )
                 )
                 i = i + 1
+                # TODO 记录提示词信息
 
     def get_agent(self, agent_id):
         """根据ID获取智能体"""
@@ -110,8 +149,8 @@ class GameModel(mesa.Model):
         """模型每一步的执行"""
         # print("=" * 20 + f"Step {self.steps}..." + "=" * 20)
 
-        # 1. 更新策略
-        self.agents.do("decide")
+        # 1. 两两博弈，决定策略
+        self.play_games()
 
         # 5. 计算收益
         self.agents.do("update_payoff")
@@ -131,7 +170,77 @@ class GameModel(mesa.Model):
         #         f"{self.get_strategy_proportion('NU')}"
         #     )
 
-    # 数据收集器所需的模型报告函数
+    def play_games(self):
+        is_first_round = True if self.step == 1 else False
+        for i in range(self.params.width * self.params.height):
+            focal_agent = self.get_agent(i)
+            neighbors = focal_agent.cell.neighborhood.agents
+            # 中心玩家作为信托者，发送提示词进行决策
+            focal_agent_response = self.investor_call_llm(focal_agent, is_first_round)
+            # 使用critic 玩家总结回复，并格式化输出
+            investe_amounts = self.conclude_res(focal_agent_response)
+
+            # 中心玩家的邻居作为受托人，依次发送提示词进行决策
+            j = 0
+            for neighbor in neighbors:
+                neighbor_response = self.trustee_call_llm(neighbor, investe_amounts[j], is_first_round)
+
+                # 使用critic 玩家总结回复，并格式化输出
+                self.conclude_res(neighbor_response)
+
+                # 记录邻居回复
+                j = j + 1
+        is_first_round = False
+        # 记录本轮博弈信息，提取重要信息用于下一轮博弈
+
+
+
+
+    def investor_call_llm(self, focal_agent, is_first_round):
+        if is_first_round:
+            focal_agent_response = focal_agent.step(BaseMessage(
+                role_name="player",
+                role_type=RoleType.USER,
+                meta_dict={},
+                content="",  # TODO 添加系统提示词
+            )).msgs[0]
+
+        else:
+            focal_agent_response = focal_agent.step(BaseMessage(
+                role_name="player",
+                role_type=RoleType.USER,
+                meta_dict={},
+                content="",  # TODO 添加系统提示词
+            )).msgs[0]
+
+        print(f"focal_agent_response: {focal_agent_response}")
+        return focal_agent_response
+
+    def trustee_call_llm(self, neighbor, investe_amount, is_first_round):
+        if is_first_round:
+            neighbor_response = neighbor.step(BaseMessage(
+                role_name="player",
+                role_type=RoleType.USER,
+                meta_dict={},
+                content=f"",  # TODO 添加系统提示词
+            )).msgs[0]
+
+        else:
+            neighbor_response = neighbor.step(BaseMessage(
+                role_name="player",
+                role_type=RoleType.USER,
+                meta_dict={},
+                content="",  # TODO 添加系统提示词
+            )).msgs[0]
+
+        print(f"neighbor_response: {neighbor_response}")
+        return neighbor_response
+
+    def conclude_res(self, focal_agent_response):
+        # TODO 总结回复，并格式化输出
+        result = self.critic_agent.step(f"总结回复，并格式化输出:{focal_agent_response}")
+        return list(result)
+
     def get_avg_payoff(self):
         """计算平均累计收益"""
         payoffs = [agent.payoff for agent in self.agents]
