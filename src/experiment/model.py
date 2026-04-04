@@ -2,7 +2,6 @@
 import os
 import json
 import numpy as np
-from examples.toolkits.task_planning_toolkit import sys_prompt
 
 from agents import BaseAgent
 from params import Params
@@ -66,12 +65,12 @@ class GameModel(mesa.Model):
                 content="格式化输出",
             ),
             model=self.llm_model,
-            output_language="English",
+            output_language="Chinese",
         )
 
         # 给agent设置ChatAgent（1、人物 2、根据不同的博弈类型设置初始提示词（不是第一轮））
         self.create_agents()
-
+        self.step:int = 0
         self.datacollector = mesa.DataCollector(
             model_reporters={
                 "Cooperating_Agents": lambda m: len(
@@ -124,10 +123,10 @@ class GameModel(mesa.Model):
                             role_name="player",
                             role_type=RoleType.USER,
                             meta_dict={},
-                            content=sys_prompt,
+                            content=system_prompt,
                         ),
                         model=self.llm_model,
-                        output_language="English",
+                        output_language="Chinese",
                     )
                 )
                 i = i + 1
@@ -137,8 +136,9 @@ class GameModel(mesa.Model):
         """根据ID获取智能体"""
         return self.agents[agent_id]
 
-    def step(self):
+    def _step(self):
         """模型每一步的执行"""
+        self.step += 1
         # print("=" * 20 + f"Step {self.steps}..." + "=" * 20)
 
         # 1. 两两博弈，决定策略
@@ -193,12 +193,7 @@ class GameModel(mesa.Model):
         else:
             investor_prompt = "投资者阶段-"+front + feedback_info + output_type
 
-        focal_agent_response = focal_agent.step(BaseMessage(
-            role_name="player",
-            role_type=RoleType.USER,
-            meta_dict={},
-            content=investor_prompt,  # TODO 添加系统提示词
-        )).msgs[0]
+        focal_agent_response = focal_agent.step(investor_prompt).msgs[0]
 
         print(f"focal_agent_response: {focal_agent_response}")
         return focal_agent_response
@@ -240,7 +235,7 @@ class GameModel(mesa.Model):
         """运行模型指定步数"""
 
         for i in range(max_round):
-            self.step()
+            self._step()
 
         self.print_final_stats()
 
