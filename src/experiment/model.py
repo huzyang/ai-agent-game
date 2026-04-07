@@ -1,6 +1,7 @@
 """"""
 import os
 import json
+import re
 import numpy as np
 
 from agents import BaseAgent
@@ -142,7 +143,8 @@ class GameModel(mesa.Model):
         # print("=" * 20 + f"Step {self.steps}..." + "=" * 20)
 
         # 1. 两两博弈，决定策略
-        self.play_games()
+        is_first_round = True if self.step == 1 else False
+        self.play_games(is_first_round)
 
         # 5. 计算收益
         self.agents.do("update_payoff")
@@ -162,64 +164,65 @@ class GameModel(mesa.Model):
         #         f"{self.get_strategy_proportion('NU')}"
         #     )
 
-    def play_games(self):
-        is_first_round = True if self.step == 1 else False
+    def play_games(self, is_first_round):
+
         for i in range(self.params.width * self.params.height):
             focal_agent = self.get_agent(i)
-            neighbors = focal_agent.cell.neighborhood.agents
+            neighbors = [*list(focal_agent.cell.neighborhood.agents)]
             # 中心玩家作为信托者，发送提示词进行决策
-            focal_agent_response = self.investor_call_llm(focal_agent, [neighbor.unique_id for neighbor in neighbors ], is_first_round)
-            # 使用critic 玩家总结回复，并格式化输出
-            investe_amounts = self.conclude_res(focal_agent_response)
-            feedback_info = f"邻居{i}向你委托了{investe_amounts}个代币，根据实验规则，你实际获得{investe_amounts * 3}个代币。本次仅针对{i}做单独返还决策，该决策与其他邻居无任何关联，后续处理其他邻居时将重新发送专属提示词；你决定返还多少代币给你的这位邻居？"
+            focal_agent_response = self.investor_call_llm(focal_agent, sorted([neighbor.unique_id for neighbor in neighbors]), is_first_round)
+            # 使用轻量级的正则表达式提取，（无需额外API调用）
+            investe_amounts = self.extract_decisions_regex(focal_agent_response.content)
+
 
             # 中心玩家的邻居作为受托人，依次发送提示词进行决策
-            j = 0
             for neighbor in neighbors:
+                value = investe_amounts.get(neighbor.unique_id,2)
+                feedback_info = f"邻居id_{i}向你(id_{neighbor.unique_id})委托了{value}个代币，根据实验规则，你实际获得{value * 3}个代币。本次仅针对邻居id_{i}做单独返还决策，该决策与其他邻居无任何关联，后续处理其他邻居时将重新发送专属提示词；你决定返还多少代币给你的这位邻居？"
                 neighbor_response = self.trustee_call_llm(neighbor, focal_agent, is_first_round,feedback_info)
 
-                # 使用critic 玩家总结回复，并格式化输出
-                self.conclude_res(neighbor_response)
-
-                # 记录邻居回复
-                j = j + 1
-        is_first_round = False
-        # 记录本轮博弈信息，提取重要信息用于下一轮博弈
+                # 使用正则表达式提取返还金额
+                return_amount = self.extract_decisions_regex(neighbor_response.content)
+                # TODO 记录返还金额，用于下一轮给中心玩家的提示词信息
+        # TODO 记录本轮博弈信息，提取重要信息用于下一轮博弈
 
     def investor_call_llm(self, focal_agent, neighbor_ids, is_first_round, feedback_info=""):
 
         if is_first_round:
-            investor_prompt = "投资者阶段-"+front + output_type
+            investor_prompt = "投资者阶段-" + front.format(self=self, neighbor_ids=neighbor_ids) + output_type
         else:
-            investor_prompt = "投资者阶段-"+front + feedback_info + output_type
+            investor_prompt = "投资者阶段-"+ front.format(self=self, neighbor_ids=neighbor_ids) + feedback_info + output_type
 
-        focal_agent_response = focal_agent.step(investor_prompt).msgs[0]
-
-        print(f"focal_agent_response: {focal_agent_response}")
+        focal_agent_response = focal_agent.llm_agent.step(investor_prompt).msgs[0]
+        # TODO 记录向信托者发送的提示词信息
+        # TODO 记录信托者的回复信息
+        print(f"focal_agent_response: {focal_agent_response.content}")
         return focal_agent_response
 
     def trustee_call_llm(self, focal_agent, neighbor, is_first_round, feedback_info=""):
-        neighbor_ids = [a.unique_id for a in neighbor.cell.agents]
+        neighbor_ids = [a.unique_id for a in neighbor.cell.agents]  # TODO 返回的邻居id有问题,可以舍弃该信息
         if is_first_round:
-            trustee_prompt = "受托人阶段-" + front.format() + feedback_info + output_type
+            trustee_prompt = "受托人阶段-" + front.format(self=self, neighbor_ids=neighbor_ids) + feedback_info + output_type
         else:
-            trustee_prompt = "受托人阶段--" + front.format() + feedback_info + output_type
+            trustee_prompt = "受托人阶段--" + front.format(self=self, neighbor_ids=neighbor_ids) + feedback_info + output_type
 
 
-        neighbor_response = neighbor.step(BaseMessage(
-            role_name="player",
-            role_type=RoleType.USER,
-            meta_dict={},
-            content=trustee_prompt,  # TODO 添加系统提示词
-        )).msgs[0]
-
-        print(f"neighbor_response: {neighbor_response}")
+        neighbor_response = neighbor.llm_agent.step(trustee_prompt).msgs[0]
+        # TODO 记录向信托者发送的提示词信息
+        # TODO 记录信托者的回复信息
+        print(f"neighbor_response: {neighbor_response.content}")
         return neighbor_response
 
-    def conclude_res(self, focal_agent_response):
-        # TODO 总结回复，并格式化输出
-        result = self.critic_agent.step(f"总结回复，并格式化输出:{focal_agent_response}")
-        return list(result)
+    def extract_decisions_regex(self, answer):
+
+        pattern = r"(\d+)\s*:\s*(\d+)"
+        matches = re.findall(pattern, answer)
+
+        result = {}
+        for neighbor_id, amount in matches:
+            result[int(neighbor_id)] = int(amount)
+
+        return result
 
     def get_avg_payoff(self):
         """计算平均累计收益"""
