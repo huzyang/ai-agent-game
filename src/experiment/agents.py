@@ -20,7 +20,6 @@ class BaseAgent(CellAgent):
         self.invested_amounts = []
         self.received_amounts = []
         self.payoff = 0.0  # 每一轮的最终收益
-        self.neighbors = []  # 邻居id
 
         self.llm_agent = None
 
@@ -29,10 +28,10 @@ class BaseAgent(CellAgent):
 
     def set_llm_agent(self, llm_agent: ChatAgent) -> None:
         self.llm_agent = llm_agent
-
-    def set_neighbors(self, neighbors: list[int]) -> None:
-        self.neighbors = neighbors
-
+    @property
+    def neighbor_ids(self):
+        # 邻居id列表
+        return sorted([agent.unique_id for agent in self.cell.neighborhood.agents])
     def update_payoff(self):
         pass
 

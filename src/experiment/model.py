@@ -63,29 +63,26 @@ class GameModel(mesa.Model):
             model_config_dict={"temperature": self.params.temperature},
         )
         # 创建评价智能体
-        self.critic_agent = ChatAgent(
-            BaseMessage(
-                role_name="critic",
-                role_type=RoleType.ASSISTANT,
-                meta_dict={},
-                content="格式化输出",
-            ),
-            model=self.llm_model,
-            output_language="Chinese",
-        )
+        # self.critic_agent = ChatAgent(
+        #     BaseMessage(
+        #         role_name="critic",
+        #         role_type=RoleType.ASSISTANT,
+        #         meta_dict={},
+        #         content="格式化输出",
+        #     ),
+        #     model=self.llm_model,
+        #     output_language="Chinese",
+        # )
 
         # 给agent设置ChatAgent（1、人物 2、根据不同的博弈类型设置初始提示词（不是第一轮））
+        print(f"创建智能体，系统提示词：{system_prompt}")
         self.create_agents()
-        self.step:int = 0
+        self.step: int = 0
         self.datacollector = mesa.DataCollector(
-            model_reporters={
-                "Cooperating_Agents": lambda m: len(
-                    [a for a in m.agents if a.strategy == "C"]
-                )
-            },
-            # agent_reporters={
-            #     # "Strategy": lambda a: StrategyType.get_strategy_name(a.strategy),
-            # }
+            agent_reporters={
+                "Invested amount": lambda a: a.invested_amounts,
+                 "Received amount": lambda a: a.received_amounts,
+            }
         )
 
     def get_all_neighbor_pairs(self) -> list:
@@ -122,9 +119,6 @@ class GameModel(mesa.Model):
         for x in range(self.params.width):
             for y in range(self.params.height):
                 agent = BaseAgent(model=self, unique_id=i, cell=self.grid[(x, y)])
-                # 设置邻居列表
-                neighbors = [*list(agent.cell.neighborhood.agents)]
-                agent.set_neighbors([neighbor.unique_id for neighbor in neighbors])
 
                 # 记录人物特征与初始系统提示词 initial_sys_prompt
                 self.initial_sys_prompt.append({
@@ -145,7 +139,6 @@ class GameModel(mesa.Model):
                 )
                 i = i + 1
 
-
     def get_agent(self, agent_id):
         """根据ID获取智能体"""
         return self.agents[agent_id]
@@ -163,7 +156,7 @@ class GameModel(mesa.Model):
         self.agents.do("update_payoff")
 
         # 6. 收集数据
-        self.datacollector.collect(self)
+        # self.datacollector.collect(self)
 
         # 7. 打印step进度信息
         # if self.steps % 50 == 0 or self.steps <= 10:
@@ -187,56 +180,49 @@ class GameModel(mesa.Model):
 
         round_input = {"agent_" + str(i): [] for i in range(self.params.width * self.params.height)}
         round_output = {"agent_" + str(i): [] for i in range(self.params.width * self.params.height)}
+        # 中心玩家作为投资者，发送提示词进行决策
+        print(f"\n{'='*60}")
+        print(f"📊 第 {self.step} 轮博弈开始")
+        print(f"{'='*60}")
 
         for i in range(self.params.width * self.params.height):
 
             focal_agent = self.get_agent(i)
-            neighbors = [*list(focal_agent.cell.neighborhood.agents)]
-            sorted_neighbor_ids = sorted([neighbor.unique_id for neighbor in neighbors])
-
             # 中心玩家作为信托者，发送提示词进行决策
-            focal_agent_response = self.investor_call_llm(focal_agent, sorted_neighbor_ids, is_first_round)
-
-            # 记录投资者输入提示词
-            investor_input_prompt = "投资者阶段-" + front.format(self=self, neighbor_ids=sorted_neighbor_ids) + output_type
-            round_input[f"agent_{i}"].append({
-                f"investor_agent_{i}": investor_input_prompt
-            })
-
+            investor_input_prompt, focal_agent_response = self.investor_call_llm(focal_agent, focal_agent.neighbor_ids, is_first_round)
             # 使用轻量级的正则表达式提取，（无需额外API调用）
             investe_amounts = self.extract_decisions_regex(focal_agent_response.content)
             focal_agent.invested_amounts.append(investe_amounts)
 
+            # 记录投资者输入提示词
+            # investor_input_prompt = "投资者阶段-" + front.format(self=self, neighbor_ids=sorted_neighbor_ids) + output_type
+            round_input[f"agent_{i}"].append({f"investor_agent_{i}": investor_input_prompt})
             # 记录投资者输出回复
-            round_output[f"agent_{i}"].append({
-                f"investor_agent_{i}": focal_agent_response.content
-            })
+            round_output[f"agent_{i}"].append({f"investor_agent_{i}": focal_agent_response.content})
 
             # 中心玩家的邻居作为受托人，依次发送提示词进行决策
-            for neighbor in neighbors:
-                value = investe_amounts.get(neighbor.unique_id, 2)
-                feedback_info = f"邻居id_{i}向你(id_{neighbor.unique_id})委托了{value}个代币，根据实验规则，你实际获得{value * 3}个代币。本次仅针对邻居id_{i}做单独返还决策，该决策与其他邻居无任何关联，后续处理其他邻居时将重新发送专属提示词；你决定返还多少代币给你的这位邻居？"
+            for neighbor_id in focal_agent.neighbor_ids:
+                trustee_agent = self.get_agent(neighbor_id)
+                value = investe_amounts.get(neighbor_id, 2)
+                feedback_info = f"邻居(id_{i})向你(id_{neighbor_id})委托了{value}个代币，根据实验规则，你实际获得{value * 3}个代币。本次仅针对该邻居(id_{i})做单独返还决策，该决策与其他邻居无任何关联，后续处理其他邻居时将重新发送专属提示词；你决定返还多少代币给你的这位邻居？"
 
-                # 记录受托人输入
-                trustee_input_prompt = "受托人阶段-" + front.format(self=self, neighbor_ids=focal_agent.neighbors) + feedback_info + output_type
-                round_input[f"agent_{neighbor.unique_id}"].append({
-                    f"trustee_agent_{i}": trustee_input_prompt
-                })
-
-                neighbor_response = self.trustee_call_llm(neighbor, focal_agent, is_first_round, feedback_info)
-
+                trustee_input_prompt, trustee_agent_response = self.trustee_call_llm(focal_agent.unique_id, trustee_agent, is_first_round, feedback_info)
                 # 使用正则表达式提取返还金额
-                return_amount = self.extract_decisions_regex(neighbor_response.content)
+                return_amount = self.extract_decisions_regex(trustee_agent_response.content)
                 # 中心玩家记录返还信息
                 focal_agent.received_amounts.append(return_amount)
 
+                # 记录受托人输入
+                round_input[f"agent_{neighbor_id}"].append({f"trustee_agent_{i}": trustee_input_prompt})
                 # 记录受托人输出
-                round_output[f"agent_{neighbor.unique_id}"].append({
-                    f"trustee_agent_{i}": neighbor_response.content
-                })
+                round_output[f"agent_{neighbor_id}"].append({f"trustee_agent_{i}": trustee_agent_response.content})
 
         self.input_record[round_key].append(round_input)
         self.output_record[round_key].append(round_output)
+
+        print(f"{'='*60}")
+        print(f"✅ 第 {self.step} 轮博弈完成")
+        print(f"{'='*60}\n")
 
         # 每轮结束后保存记录
         self.save_records()
@@ -246,25 +232,38 @@ class GameModel(mesa.Model):
         if is_first_round:
             investor_prompt = "投资者阶段-" + front.format(self=self, neighbor_ids=neighbor_ids) + output_type
         else:
-            investor_prompt = "投资者阶段-"+ front.format(self=self, neighbor_ids=neighbor_ids) + feedback_info + output_type
+            investor_prompt = "投资者阶段-" + front.format(self=self, neighbor_ids=neighbor_ids) + feedback_info + output_type
 
+        import time
+        start_time = time.time()
         focal_agent_response = focal_agent.llm_agent.step(investor_prompt).msgs[0]
-        print(f"agent_{focal_agent.unique_id}-investor prompt: "+ investor_prompt)
-        print(f"agent_{focal_agent.unique_id}-response: {focal_agent_response.content}")
-        return focal_agent_response  # 可以返还两个结果
+        elapsed_time = time.time() - start_time
 
-    def trustee_call_llm(self, focal_agent, neighbor, is_first_round, feedback_info=""):
+        print(f"\n  🔹 [投资者] Agent {focal_agent.unique_id}")
+        print(f"  ├─ 邻居列表: {neighbor_ids}")
+        print(f"  ├─ 提示词: {investor_prompt}")
+        print(f"  ├─ 响应: {focal_agent_response.content}")
+        print(f"  └─ API耗时: {elapsed_time:.2f}秒")
 
+        return investor_prompt, focal_agent_response
+
+    def trustee_call_llm(self, focal_agent_id, trustee_agent, is_first_round, feedback_info=""):
         if is_first_round:
-            trustee_prompt = "受托人阶段-" + front.format(self=self, neighbor_ids=focal_agent.neighbors) + feedback_info + output_type
+            trustee_prompt = "受托人阶段-" + front.format(self=self, neighbor_ids=trustee_agent.neighbor_ids) + feedback_info + output_type
         else:
-            trustee_prompt = "受托人阶段--" + front.format(self=self, neighbor_ids=focal_agent.neighbors) + feedback_info + output_type
+            trustee_prompt = "受托人阶段--" + front.format(self=self, neighbor_ids=trustee_agent.neighbor_ids) + feedback_info + output_type
 
+        import time
+        start_time = time.time()
+        trustee_response = trustee_agent.llm_agent.step(trustee_prompt).msgs[0]
+        elapsed_time = time.time() - start_time
 
-        neighbor_response = neighbor.llm_agent.step(trustee_prompt).msgs[0]
-        print(f"agent_{focal_agent.unique_id}-trustee prompt: "+ trustee_prompt)
-        print(f"agent_{focal_agent.unique_id}-response: {neighbor_response.content}")
-        return neighbor_response   # 可以返还两个结果
+        print(f"\n  🔸 [受托人] Agent {trustee_agent.unique_id}")
+        print(f"  ├─ 我的邻居: {trustee_agent.neighbor_ids}")
+        print(f"  ├─ 反馈信息: {feedback_info[:80]}...")
+        print(f"  ├─ 响应: {trustee_response.content}")
+        print(f"  └─ API耗时: {elapsed_time:.2f}秒")
+        return trustee_prompt, trustee_response
 
     def extract_decisions_regex(self, answer):
 
@@ -298,7 +297,6 @@ class GameModel(mesa.Model):
         with open(record_file, "w", encoding="utf-8") as f:
             json.dump(record_data, f, ensure_ascii=False, indent=2)
 
-
     def run_model(self, max_round=100):
         """运行模型指定步数"""
 
@@ -309,4 +307,12 @@ class GameModel(mesa.Model):
 
     def print_final_stats(self):
         """打印最终统计信息"""
-        print(f"\n============================= 运行完成！=================================")
+        """打印最终统计信息"""
+        print(f"\n{'=' * 70}")
+        print(f"🎉 模型运行完成！")
+        print(f"{'=' * 70}")
+        print(f"  • 总轮数: {self.step}")
+        print(f"  • 网格大小: {self.params.width} x {self.params.height}")
+        print(f"  • 智能体总数: {len(self.agents)}")
+        print(f"  • 记录文件: results/record_model_test.json")
+        print(f"{'=' * 70}\n")
