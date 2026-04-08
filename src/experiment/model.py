@@ -5,7 +5,7 @@ import re
 import numpy as np
 
 from agents import BaseAgent
-from params import Params
+from params import Params,ModelType
 from src.utils import CommonUtils
 
 import mesa
@@ -17,8 +17,8 @@ from camel.agents import ChatAgent
 from camel.messages import BaseMessage
 from camel.types.enums import RoleType
 
-with open(os.path.join(CommonUtils.get_project_root_path(), "src/prompts/trust_game_round_prompt.json"), "r") as f:
-    trust_game_round_prompt = json.load(f)
+with open(os.path.join(CommonUtils.get_project_root_path(), "src/prompts/all_prompts.json"), "r") as f:
+    all_prompt = json.load(f)
 
 with open(os.path.join(CommonUtils.get_project_root_path(), "src/prompts/character_test.json"), "r") as json_file:
     chara_prompt = list(json.load(json_file).values())
@@ -33,6 +33,7 @@ class GameModel(mesa.Model):
             self,
             width=3,
             height=3,
+            model_type=ModelType.QWEN3_5_FLASH,
             game_type="trust_game",
             seed=40
     ):
@@ -43,6 +44,7 @@ class GameModel(mesa.Model):
 
         # 初始化model
         self.params = Params()
+        self.model_type = model_type
         self.game_type = game_type
         self.payoff_matrix = None
 
@@ -57,7 +59,7 @@ class GameModel(mesa.Model):
         # 创建LLM模型
         self.llm_model = ModelFactory.create(
             model_platform=ModelPlatformType.OPENAI_COMPATIBLE_MODEL,
-            model_type=self.params.model,
+            model_type=self.model_type,
             url=self.params.api_base_url,
             api_key=self.params.api_key,
             model_config_dict={"temperature": self.params.temperature},

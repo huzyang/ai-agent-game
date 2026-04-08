@@ -2,7 +2,6 @@ from enum import Enum
 
 class ExtendedModelType(Enum):
     GPT_4 = "gpt-4"
-
     QWEN3_5_FLASH = "qwen3.5-flash"
     QWEN3_5_MAX = "qwen3.5-max"
 
