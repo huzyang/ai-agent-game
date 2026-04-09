@@ -9,9 +9,10 @@ import logging
 import tqdm
 from datetime import datetime
 
-from src.experiment.params import Params
+from src.experiment.params import Params,GameScenario
 from src.experiment.model import GameModel
 from src.utils import CommonUtils
+
 # 添加当前目录到路径
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
@@ -55,9 +56,7 @@ def format_run_time(seconds):
     else:  # 小于1分钟
         return f"{seconds:.2f}秒"
 
-def multi_round_exp(
-        params  # 参数对象
-):
+def multi_round_exp(params: Params):
     """
     执行多轮实验的主函数，针对给定的模型列表进行多轮测试
     参数:
@@ -65,14 +64,14 @@ def multi_round_exp(
         exp_time: 每个模型要重复实验的次数
         round_num_inform: 是否在输出中显示轮次信息
     """
-    model_list = params.model_list
+    model_type_list = params.model_type_list
     iterations = params.iterations
-    for model in model_list:
+    for model_type in model_type_list:
 
         # 根据模型列表创建结果文件夹
         # 创建输出目录
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_dir = os.path.join(CommonUtils.get_project_root_path(), "outputs", f"{timestamp}_{params.run_type}_{params.analyzed_params[0]}-{params.analyzed_params[1]}")
+        output_dir = os.path.join(CommonUtils.get_project_root_path(), "outputs", f"{timestamp}_{model_type}_round-{params.rounds}")
         os.makedirs(output_dir, exist_ok=True)
 
         # 生成初始设置，获取文件夹路径和额外的提示信息
@@ -80,7 +79,7 @@ def multi_round_exp(
         # 使用t进度条进行多轮实验
         for i in tqdm.trange(iterations):
             # 执行多轮实验，传入模型、角色列表、文件夹路径等参数
-            game_model = GameModel(params.width, params.height, params.game_type)
+            game_model = GameModel(scenario=GameScenario())
             game_model.run_model(params.rounds)
 
 
@@ -91,12 +90,10 @@ def main():
     print("=" * 60)
 
     params = Params()
-    params.print_all_params()
 
     import time
     start_time = time.time()
-    multi_round_exp(params)
-
+    multi_round_exp(params=params)
 
     run_time = format_run_time(time.time() - start_time)
     print(f"批量运行完成，耗时: {run_time:.2f}秒")

@@ -36,11 +36,21 @@ class GameType(Enum):
     PDG = "pd_game"
     TRUST = "trust_game"
 
+from mesa.experimental.scenarios import Scenario
+class GameScenario(Scenario):
+    """Scenario for model."""
+    num_agents: int = 4  # 节点数
+    width: int = int(num_agents ** 0.5)  # 根号 N
+    height: int = width
+    torus: bool = True
+    model_type: str = ModelType.QWEN3_5_FLASH.value,
+    game_type: str = GameType.TRUST.value
+
 class Params:
 
     def __init__(self):
-        self.N = 4  # 节点数
-        self.width: int = int(self.N ** 0.5)  # 根号 N
+        self.num_agents = GameScenario.num_agents  # 节点数
+        self.width: int = int(self.num_agents ** 0.5)  # 根号 N
         self.height: int = self.width
         self.p = 0.5  # 自由节点比例
         self.rounds = 2  # 游戏轮数
@@ -52,7 +62,7 @@ class Params:
         if not self.api_key:
             raise ValueError("请设置环境变量 QWEN_API_KEY")
         self.api_base_url = os.getenv("QWEN_API_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
-        self.model_list = [ModelType.QWEN3_5_FLASH]
+        self.model_type_list = [ModelType.QWEN3_5_FLASH]
         self.temperature = 0.7
         self.max_tokens = 4096
         ################# mesa 参数 ####################
@@ -63,7 +73,9 @@ class Params:
     @property
     def model_init_params(self):
         return {
-            'N': self.N,
+            'num_agents': self.num_agents,
+            'rounds': self.rounds,
+            'game_type': self.game_type
         }
 
     def print_model_init_params(self):
@@ -75,8 +87,7 @@ class Params:
     def print_all_params(self):
         """打印所有参数"""
         print(f"\n对称信任博弈实验参数:")
-        print(f"  节点数量 N = {self.N}")
-        print(f"  标记为自由节点的比例 p = {self.p}")
+        print(f"  节点数量 num_agents = {self.num_agents}")
         print(f"  游戏轮数 rounds = {self.rounds}")
 
         print(f"{'=' * 50}\n")

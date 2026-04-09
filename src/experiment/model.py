@@ -5,11 +5,12 @@ import re
 import numpy as np
 
 from agents import BaseAgent
-from params import Params,ModelType
+from params import Params,ModelType,GameType
 from src.utils import CommonUtils
 
 import mesa
 from mesa.discrete_space import OrthogonalVonNeumannGrid
+from mesa.experimental.scenarios import Scenario
 
 from camel.models import ModelFactory
 from camel.types import ModelPlatformType
@@ -27,34 +28,42 @@ with open(os.path.join(CommonUtils.get_project_root_path(), "src/prompts/charact
 system_prompt = """你是中等亲社会倾向的参与者，进行格状网络多邻居多轮对称信任博弈。每轮初始5代币，委托代币×3增值；对每位邻居同时为信任者(0-5整数)、受托人(0至3倍委托值整数)。信任者阶段：受限玩家统一决策，自由玩家独立决策；受托人无约束。依据上轮行为决策，禁止极端自利/利他。输出仅包含邻居ID、阿拉伯数字、英文分号，无多余内容，按邻居顺序输出。"""
 output_type = "输出格式：严格按「邻居ID:委托数;邻居ID:委托数;……」的格式输出。"
 front = "第{self.step}轮实验; 你的博弈邻居列表：{neighbor_ids};"
+
+class GameScenario(Scenario):
+    """Scenario for model."""
+    num_agents: int = 4  # 节点数
+    width: int = int(num_agents ** 0.5)  # 根号 N
+    height: int = width
+    torus: bool = True
+    model_type: str = ModelType.QWEN3_5_FLASH.value,
+    game_type: str = GameType.TRUST.value
+
+
 class GameModel(mesa.Model):
 
     def __init__(
             self,
-            width=3,
-            height=3,
-            model_type=ModelType.QWEN3_5_FLASH,
-            game_type="trust_game",
-            seed=40
+            scenario: GameScenario = GameScenario,
     ):
         """
 
         """
-        super().__init__(rng=seed)
+        super().__init__(scenario=scenario)
 
         # 初始化model
         self.params = Params()
-        self.model_type = model_type
-        self.game_type = game_type
-        self.payoff_matrix = None
-
-        # 创建网格
-        self.grid = OrthogonalVonNeumannGrid((width, height), torus=True, random=self.random)
+        self.model_type = scenario.model_type
+        self.game_type = scenario.game_type
 
         # 初始化记录数据结构
         self.initial_sys_prompt = []
         self.input_record = {}
         self.output_record = {}
+
+        # 创建网格
+        self.grid = OrthogonalVonNeumannGrid(
+            (scenario.width, scenario.height), torus=scenario.torus, random=self.random
+        )
 
         # 创建LLM模型
         self.llm_model = ModelFactory.create(
@@ -64,6 +73,18 @@ class GameModel(mesa.Model):
             api_key=self.params.api_key,
             model_config_dict={"temperature": self.params.temperature},
         )
+
+        # 创建智能体、给智能体设置ChatAgent（1、人物 2、根据不同的博弈类型设置初始提示词（不是第一轮））
+        print(f"创建智能体，系统提示词：{system_prompt}")
+        self.create_agents()
+        self.step: int = 0
+        self.datacollector = mesa.DataCollector(
+            agent_reporters={
+                "Invested amount": lambda a: a.invested_amounts,
+                "Received amount": lambda a: a.received_amounts,
+            }
+        )
+
         # 创建评价智能体
         # self.critic_agent = ChatAgent(
         #     BaseMessage(
@@ -75,17 +96,6 @@ class GameModel(mesa.Model):
         #     model=self.llm_model,
         #     output_language="Chinese",
         # )
-
-        # 给agent设置ChatAgent（1、人物 2、根据不同的博弈类型设置初始提示词（不是第一轮））
-        print(f"创建智能体，系统提示词：{system_prompt}")
-        self.create_agents()
-        self.step: int = 0
-        self.datacollector = mesa.DataCollector(
-            agent_reporters={
-                "Invested amount": lambda a: a.invested_amounts,
-                 "Received amount": lambda a: a.received_amounts,
-            }
-        )
 
     def get_all_neighbor_pairs(self) -> list:
         """
@@ -133,7 +143,7 @@ class GameModel(mesa.Model):
                             role_name="player",
                             role_type=RoleType.USER,
                             meta_dict={},
-                            content=system_prompt,
+                            content=chara_prompt[i] + system_prompt,
                         ),
                         model=self.llm_model,
                         output_language="Chinese",
@@ -183,9 +193,9 @@ class GameModel(mesa.Model):
         round_input = {"agent_" + str(i): [] for i in range(self.params.width * self.params.height)}
         round_output = {"agent_" + str(i): [] for i in range(self.params.width * self.params.height)}
         # 中心玩家作为投资者，发送提示词进行决策
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"📊 第 {self.step} 轮博弈开始")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
 
         for i in range(self.params.width * self.params.height):
 
@@ -222,9 +232,9 @@ class GameModel(mesa.Model):
         self.input_record[round_key].append(round_input)
         self.output_record[round_key].append(round_output)
 
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
         print(f"✅ 第 {self.step} 轮博弈完成")
-        print(f"{'='*60}\n")
+        print(f"{'=' * 60}\n")
 
         # 每轮结束后保存记录
         self.save_records()
