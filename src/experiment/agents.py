@@ -9,12 +9,12 @@ from mesa.discrete_space import CellAgent
 class BaseAgent(CellAgent):
     """Agent member of the iterated, spatial prisoner's dilemma model."""
 
-    def __init__(self, model, unique_id, cell=None):
+    def __init__(self, model, cell=None):
         """
         Create a new Base agent.
         """
         super().__init__(model)
-        self.unique_id = unique_id
+        # self.unique_id = unique_id
         self.cell = cell
 
         self.I_invested_amounts = []
@@ -27,7 +27,7 @@ class BaseAgent(CellAgent):
         self.llm_agent = None
 
     def __str__(self):
-        return f"Agent {self.unique_id}: cell: {self.cell}; Neighbors: {self.neighbor_ids}; Payoff: {self.payoff:.2f}"
+        return f"Agent {self.unique_id}: Position: {self.cell.coordinate}; Neighbors: {self.neighbor_ids}; Payoff: {self.payoff:.2f}"
 
     def set_llm_agent(self, llm_agent: ChatAgent) -> None:
         self.llm_agent = llm_agent

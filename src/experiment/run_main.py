@@ -8,9 +8,6 @@ import sys
 import logging
 import tqdm
 from datetime import datetime
-
-from telebot import formatter
-
 from src.experiment.params import Params,GameScenario
 from src.experiment.model import GameModel
 from src.utils import CommonUtils
