@@ -66,10 +66,9 @@ class GameModel(mesa.Model):
         self.model_type = scenario.model_type
         self.game_type = scenario.game_type
 
+        self.agents_invested_amounts = []  # 记录所有代理的投资金额
+        self.agents_returned_amounts = []  # 记录所有代理的返还金额
         # 初始化记录数据结构
-        self.agents_invested_amounts = []
-        self.agents_returned_amounts = []
-
         self.initial_sys_prompt = []
         self.input_record = {}
         self.output_record = {}
@@ -140,6 +139,7 @@ class GameModel(mesa.Model):
     def init_chat_agent(self):
         for i in range(self.num_agents):
             agent = self.get_agent(i)
+            agent.unique_id = agent.unique_id - 1
 
             character = p_characters[i]
             position = f"Your ID: {agent.unique_id}. Your position in the lattice: {agent.cell.coordinate}. Your neighbors in the lattice network: {agent.neighbor_ids}."
@@ -163,10 +163,6 @@ class GameModel(mesa.Model):
                 f"agent_{agent.unique_id}_position_{agent.cell.coordinate}": content
             })
 
-    def get_agent(self, agent_id):
-        """根据ID获取智能体"""
-        return self.agents[agent_id]
-
     def _step(self):
         """模型每一步的执行"""
         self.step += 1
@@ -178,10 +174,11 @@ class GameModel(mesa.Model):
             self.output_record[round_key] = []
 
         # 1. 依次扮演信托者
-        self.play_investor(is_first_round,round_key)
+        self.play_investor(player_type = "Investor",is_first_round=is_first_round,round_key=round_key)
 
         # 2. 整理所有信托者的回复
         self.record_agent_investment()
+
         # 3. 依次扮演受托人
         self.play_trustee(is_first_round,round_key)
 
@@ -197,10 +194,10 @@ class GameModel(mesa.Model):
         # 7. 收集数据
         # self.datacollector.collect(self)
 
-    def play_investor(self, is_first_round, round_key):
+    def play_investor(self, player_type = "Investor", is_first_round=True, round_key="round_1"):
 
-        round_input = {"agent_" + str(i + 1): [] for i in range(self.params.width * self.params.height)}
-        round_output = {"agent_" + str(i + 1): [] for i in range(self.params.width * self.params.height)}
+        round_input = {"agent_" + str(i): [] for i in range(self.params.width * self.params.height)}
+        round_output = {"agent_" + str(i): [] for i in range(self.params.width * self.params.height)}
 
         logger.info(f"\n{'=' * 60}")
         logger.info(f"📊 第 {self.step} 轮博弈 - 投资者阶段开始")
@@ -211,14 +208,19 @@ class GameModel(mesa.Model):
 
             add_info = ''
             investor_prompt = self.prepare_prompt(is_first_round=is_first_round, additional_info=add_info)
-            focal_agent_response = self._call_llm(focal_agent=focal_agent, prompt=investor_prompt, player_type="Investor")
+            # focal_agent_response = self._call_llm(focal_agent=focal_agent, prompt=investor_prompt, player_type="Investor")
             # 使用轻量级的正则表达式提取，（无需额外API调用）
-            invested_amounts = self.extract_decisions_regex(focal_agent_response.content)
+            value = []
+            for id in focal_agent.neighbor_ids:
+                value.append(re.search(r'id:\d', '3'))
+            focal_agent_response = "作为 Emily，一名习惯用逻辑和算法思考的软件工程师，我开始分析这一轮的游戏策略。这是一个对称的信任博弈，处于多轮实验的初期阶段。虽然第一轮没有历史数据可以参考，但在重复博弈的背景下，建立互惠的合作规范对于最大化长期总收益至关重要。\n从数学期望来看，如果我不发送任何代币（x=0），虽然能确保不亏损，但也无法获得信托投资带来的潜在增值回报，这会破坏合作的可能性。反之，如果发送全部 5 个代币，风险过高。考虑到我是一个追求卓越的分析师，我会选择一个既能有效传递信任信号，又能保留一定安全边际的数量。发送 4 个代币意味着我将大部分资源投入到合作伙伴手中，这向邻居展示了强烈的合作意愿，同时也留下了一个代币作为风险缓冲。鉴于目前所有邻居的情况相同，且我是自由玩家，可以对每个邻居独立决策，但为了确立一致的社交规范，我对这两个邻居将采取相同的策略。\nFinally, I decide to send [2: 4, 3: 4] to each neighbor."
+            invested_amounts = self.extract_decisions_regex(focal_agent_response)
 
             focal_agent.I_invested_amounts.append(invested_amounts)
+            self.agents_invested_amounts.append(invested_amounts)
             # 记录投资者输入提示词和输出回复
             round_input[f"agent_{i}"].append({f"as_investor": investor_prompt})
-            round_output[f"agent_{i}"].append({f"as_investor": focal_agent_response.content})
+            round_output[f"agent_{i}"].append({f"as_investor": focal_agent_response})
 
         self.input_record[round_key].append({"investor_input": round_input})
         self.output_record[round_key].append({"investor_output": round_output})
@@ -229,6 +231,29 @@ class GameModel(mesa.Model):
         logger.info(f"\n{'=' * 60}")
         logger.info(f"📊 第 {self.step} 轮博弈 - 受托人阶段开始")
         logger.info(f"{'=' * 60}")
+
+        round_input = {"agent_" + str(i): [] for i in range(self.params.width * self.params.height)}
+        round_output = {"agent_" + str(i): [] for i in range(self.params.width * self.params.height)}
+
+        for i in range(self.num_agents):
+            focal_agent = self.get_agent(i)
+
+            add_info = ''
+            trustee_prompt = self.prepare_prompt(is_first_round=is_first_round, additional_info=add_info)
+            focal_agent_response = self._call_llm(focal_agent=focal_agent, prompt=trustee_prompt, player_type="Trustee")
+            # 使用轻量级的正则表达式提取，（无需额外API调用）
+            returned_amounts = self.extract_decisions_regex(focal_agent_response.content)
+
+            focal_agent.T_returned_amounts.append(returned_amounts)
+            self.agents_returned_amounts.append(returned_amounts)
+            # 记录投资者输入提示词和输出回复
+            round_input[f"agent_{i}"].append({f"as_trustee": trustee_prompt})
+            round_output[f"agent_{i}"].append({f"as_trustee": focal_agent_response.content})
+
+        self.input_record[round_key].append({"trustee_input": round_input})
+        self.output_record[round_key].append({"trustee_output": round_output})
+
+        logger.info(f"✅ 第 {self.step} 轮受托人阶段完成\n")
 
 
     def prepare_prompt(self, is_first_round, additional_info="") -> str:
@@ -248,27 +273,67 @@ class GameModel(mesa.Model):
 
         logger.info(f"✅ [{player_type}] Agent {focal_agent.unique_id} 投资决策完成 - API耗时: {elapsed_time:.2f}秒")
         logger.info(f"  响应: {focal_agent_response.content[:100]}...")
+
         return focal_agent_response
 
     def record_agent_investment(self):
-        # for i in range(self.params.width * self.params.height):
-        #     focal_agent = self.get_agent(i)
-        #     focal_agent.I_received_amounts.append(focal_agent.I_invested_amounts[-1])
-        #     focal_agent.I_invested_amounts = []
-        pass
+        for i in range(self.num_agents):
+            focal_agent = self.get_agent(i)
+
+            received_from_neighbors = {}
+            for neighbor_id in focal_agent.neighbor_ids:
+                neighbor_agent = self.get_agent(neighbor_id)
+
+                if neighbor_agent.I_invested_amounts:
+                    last_investment = neighbor_agent.I_invested_amounts[-1]
+
+                    amount_to_focal = last_investment.get(focal_agent.unique_id, 0)
+
+                    received_from_neighbors[neighbor_id] = amount_to_focal
+
+            focal_agent.T_received_amounts.append(received_from_neighbors)
+
+            logger.debug(f"Agent {i} 收到邻居投资: {received_from_neighbors}")
+
+        # self.agents_invested_amounts = []
     def record_agent_return(self):
         # for i in range(self.params.width * self.params.height):
         #     focal_agent = self.get_agent(i)
         pass
 
     def extract_decisions_regex(self, answer):
+        pattern = r"Finally,\s*I\s+decide\s+to\s+send\s*\[([^\]]+)\]"
+        match = re.search(pattern, answer, re.IGNORECASE)
 
-        pattern = r"(\d+)\s*:\s*(\d+)"
-        matches = re.findall(pattern, answer)
+        if not match:
+            logger.warning(f"未找到标准格式，尝试备用提取方式。原始响应: {answer[:100]}")
+            return self._extract_fallback(answer)
+
+        content = match.group(1)
+        pairs = re.findall(r"(\d+)\s*:\s*(\d+)", content)
+
+        if not pairs:
+            logger.warning(f"找到格式但未解析到键值对: {content}")
+            return {}
 
         result = {}
-        for neighbor_id, amount in matches:
-            result[int(neighbor_id)] = int(amount)
+        for neighbor_id, amount in pairs:
+            result[int(neighbor_id)] = min(int(amount), 5)
+
+        logger.debug(f"提取投资决策: {result}")
+        return result
+
+    def _extract_fallback(self, answer):
+        pairs = re.findall(r"(\d+)\s*:\s*(\d+)", answer)
+        if not pairs:
+            logger.error(f"无法从响应中提取任何决策: {answer[:200]}")
+            return {}
+
+        result = {}
+        for neighbor_id, amount in pairs:
+            nid, amt = int(neighbor_id), int(amount)
+            if 0 <= amt <= 5:
+                result[nid] = amt
 
         return result
 
@@ -301,6 +366,9 @@ class GameModel(mesa.Model):
 
         self.print_final_stats()
 
+    def get_agent(self, agent_id):
+        """根据ID获取智能体"""
+        return self.agents[agent_id]
     def print_final_stats(self):
         """打印最终统计信息"""
         """打印最终统计信息"""

@@ -42,10 +42,10 @@
   {
     "Decision and memory": [
       {
-        "Decision": "\nThis is Round X, and the tokens you have received from your neighbors in the current round are as follows: [Neighbor1 ID: C1; Neighbor2 ID: C2; ...], where the actual amount you receive from each neighbor equals three times the number of tokens sent by that neighbor."
+        "Decision": "\nThis is Round X, and the tokens you have received from your neighbors in the current round are as follows: [Neighbor1 ID: C1, Neighbor2 ID: C2, ...], where the actual amount you receive from each neighbor equals three times the number of tokens sent by that neighbor."
       },
       {
-        "Memory": "\nIn the previous round:\n- As investor: you sent [Neighbor1 ID: A1; Neighbor2 ID: A2; ...]; neighbors returned [Neighbor1 ID: B1; Neighbor2 ID: B2; ...]\n- As trustee: neighbors sent [Neighbor1 ID: C1; Neighbor2 ID: C2; ...]; you returned [Neighbor1 ID: D1; Neighbor2 ID: D2; ...]\nYour total payoff in the previous round was r (archived and not available for the current round). "
+        "Memory": "\nIn the previous round:\n- As investor: you sent [Neighbor1 ID: A1, Neighbor2 ID: A2, ...]; neighbors returned [Neighbor1 ID: B1, Neighbor2 ID: B2, ...]\n- As trustee: neighbors sent [Neighbor1 ID: C1, Neighbor2 ID: C2, ...]; you returned [Neighbor1 ID: D1, Neighbor2 ID: D2, ...]\nYour total payoff in the previous round was r (archived and not available for the current round). "
       }
     ]
   },
@@ -65,7 +65,7 @@
         "BDI framework": "\nYour answer must explicitly include the content and analysis about your Belief, Desire, and Intention to explain your reasoning process."
       },
       {
-        "Format": "\nOutput decisions in the original order of the neighbor list provided in each stage; do not reorder.\nYour answer must end with the following sentence:\nFinally, I decide to send [Neighbor1 ID: integer1; Neighbor2 ID: integer2; ...] to each neighbor."
+        "Format": "\nOutput decisions in the original order of the neighbor list provided in each stage; do not reorder.\nYour answer must end with the following sentence:\nFinally, I decide to send [Neighbor1 ID: integer1, Neighbor2 ID: integer2, ...] to each neighbor."
       }
     ]
   }
