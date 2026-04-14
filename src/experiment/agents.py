@@ -17,14 +17,17 @@ class BaseAgent(CellAgent):
         self.unique_id = unique_id
         self.cell = cell
 
-        self.invested_amounts = []
-        self.received_amounts = []
+        self.I_invested_amounts = []
+        self.I_received_amounts = []
+
+        self.T_received_amounts = []
+        self.T_returned_amounts = []
         self.payoff = 0.0  # 每一轮的最终收益
 
         self.llm_agent = None
 
     def __str__(self):
-        return f"Agent {self.unique_id}: neighbors: {self.neighbors}; Payoff: {self.payoff:.2f}"
+        return f"Agent {self.unique_id}: cell: {self.cell}; Neighbors: {self.neighbor_ids}; Payoff: {self.payoff:.2f}"
 
     def set_llm_agent(self, llm_agent: ChatAgent) -> None:
         self.llm_agent = llm_agent
@@ -48,9 +51,6 @@ class BaseAgent(CellAgent):
         # 3、解析决策
         pass
 
-    def update_payoff(self):
-        # neighbors = [*list(self.cell.neighborhood.agents), self]
-        pass
 
     def _call_llm(self, system_prompt: str, user_prompt: str) -> str:
         """调用LLM获取原始响应"""

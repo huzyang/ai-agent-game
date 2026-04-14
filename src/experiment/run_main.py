@@ -9,6 +9,8 @@ import logging
 import tqdm
 from datetime import datetime
 
+from telebot import formatter
+
 from src.experiment.params import Params,GameScenario
 from src.experiment.model import GameModel
 from src.utils import CommonUtils
@@ -19,20 +21,32 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 def setup_logging():
     """设置日志输出到文件和控制台"""
-    log_dir = "logs"
+    log_dir = "outputs/logs"
     os.makedirs(log_dir, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = os.path.join(log_dir, f"stage2_{timestamp}.log")
+    log_file = os.path.join(log_dir, f"{timestamp}_run.log")
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler(log_file, encoding='utf-8'),
-            logging.StreamHandler()
-        ]
-    )
-    return logging.getLogger(__name__)
+    logger = logging.getLogger(__name__)
+    logger.setLevel(logging.INFO)
+
+    if logger.handlers:
+        logger.handlers.clear()
+
+    file_handler = logging.FileHandler(log_file, mode="a", encoding='utf-8')
+    file_handler.setLevel(logging.INFO)
+    file_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+    file_handler.setFormatter(file_formatter)
+
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s', datefmt='%H:%M:%S')
+    console_handler.setFormatter(console_formatter)
+
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+
+    return logger
+
 
 def format_run_time(seconds):
     """
@@ -85,9 +99,9 @@ def multi_round_exp(params: Params):
 
 def main():
     logger = setup_logging()
-    print("=" * 60)
-    print("开始运行LLM智能体博弈实验...")
-    print("=" * 60)
+    logger.info("=" * 60)
+    logger.info("开始运行LLM智能体博弈实验...")
+    logger.info("=" * 60)
 
     params = Params()
 
@@ -96,7 +110,7 @@ def main():
     multi_round_exp(params=params)
 
     run_time = format_run_time(time.time() - start_time)
-    print(f"批量运行完成，耗时: {run_time:.2f}秒")
+    logger.info(f"批量运行完成，耗时: {run_time:.2f}秒")
 
 
 if __name__ == "__main__":
