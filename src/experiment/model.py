@@ -2,8 +2,9 @@
 import os
 import json
 import re
-import numpy as np
+import sys
 import logging
+import numpy as np
 from numpy.random import random_integers
 
 from agents import BaseAgent
@@ -19,7 +20,19 @@ from camel.models import ModelFactory
 from camel.types import ModelPlatformType
 from camel.agents import ChatAgent
 from camel.messages import BaseMessage
-from camel.types.enums import RoleType, logger
+from camel.types.enums import RoleType
+
+logger = logging.getLogger('experiment')
+if not logger.handlers:
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_handler.setStream(sys.stdout)
+    formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s', datefmt='%H:%M:%S')
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
 
 with open(os.path.join(CommonUtils.get_project_root_path(), "src/prompts/all_prompts.json"), "r", encoding="utf-8") as f:
     all_prompts = json.load(f)
@@ -192,7 +205,7 @@ class GameModel(mesa.Model):
 
     def role_stage(self, player_type="investor"):
 
-        logger.info(f"\n{'=' * 60}")
+        logger.info(f"{'=' * 60}")
         logger.info(f"📊 第 {self.step} 轮博弈 - {player_type} 阶段开始")
         logger.info(f"{'=' * 60}")
 
@@ -228,7 +241,7 @@ class GameModel(mesa.Model):
             self.round_input_record["as_trustee"] = agent_input
             self.round_output_record["as_trustee"] = agent_output
 
-        logger.info(f"✅ 第 {self.step} 轮投资者阶段完成\n")
+        logger.info(f"✅ 第 {self.step} 轮-{player_type} 阶段完成\n")
 
     def play_trustee(self, is_first_round, round_key):
         logger.info(f"\n{'=' * 60}")

@@ -23,7 +23,7 @@ def setup_logging():
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_file = os.path.join(log_dir, f"{timestamp}_run.log")
 
-    logger = logging.getLogger(__name__)
+    logger = logging.getLogger('experiment')
     logger.setLevel(logging.INFO)
 
     if logger.handlers:
@@ -34,13 +34,15 @@ def setup_logging():
     file_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
     file_handler.setFormatter(file_formatter)
 
-    console_handler = logging.StreamHandler()
+    console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(logging.INFO)
     console_formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s', datefmt='%H:%M:%S')
     console_handler.setFormatter(console_formatter)
 
     logger.addHandler(file_handler)
     logger.addHandler(console_handler)
+
+    logger.propagate = False
 
     return logger
 
@@ -107,7 +109,7 @@ def main():
     multi_round_exp(params=params)
 
     run_time = format_run_time(time.time() - start_time)
-    logger.info(f"批量运行完成，耗时: {run_time}")
+    logger.info(f"LLM智能体博弈实验运行完成，共耗时: {run_time}")
 
 
 if __name__ == "__main__":
