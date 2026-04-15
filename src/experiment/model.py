@@ -4,6 +4,8 @@ import json
 import re
 import numpy as np
 import logging
+from numpy.random import random_integers
+
 from agents import BaseAgent
 from params import Params, ModelType, GameType
 from src.utils import CommonUtils
@@ -20,26 +22,22 @@ from camel.messages import BaseMessage
 from camel.types.enums import RoleType, logger
 
 with open(os.path.join(CommonUtils.get_project_root_path(), "src/prompts/all_prompts.json"), "r", encoding="utf-8") as f:
-    all_prompt_list = json.load(f)
-
-all_prompts = {}
-for item in all_prompt_list:
-    for key, value in item.items():
-        all_prompts[key] = value
+    all_prompts = json.load(f)
 
 p_characters = all_prompts.get("Character", [])
 p_like_people = all_prompts.get("Like-people", "")
 p_experiment_info = all_prompts.get("Experiment info", "")
-p_game_rules = all_prompts.get("Game rule", [])
+p_game_rules = all_prompts.get("Game rule", "")
 p_position_template = all_prompts.get("Position", "")
-p_player_restrictions = all_prompts.get("Player restrictions", [])
+p_player_restrictions = all_prompts.get("Player restrictions", "")
 p_ensure = all_prompts.get("Ensure", "")
-p_decision_memory = all_prompts.get("Decision and memory", [])
-p_decision_stages = all_prompts.get("Decision stages", [])
-p_output_requirements = all_prompts.get("Output requirements", [])
-p_system_prompt = p_like_people + p_experiment_info + p_game_rules[0].get("trust game")
+p_decision = all_prompts.get("Decision", "")
+p_memory = all_prompts.get("Memory", "")
+p_decision_stages = all_prompts.get("Decision stages", "")
+p_output_requirements = all_prompts.get("Output requirements", "")
+p_system_prompt = p_like_people + p_experiment_info + p_game_rules.get("trust game")
 
-logger = logging.getLogger(__name__)
+
 class GameScenario(Scenario):
     """Scenario for model."""
     num_agents: int = 4  # 节点数
@@ -65,13 +63,14 @@ class GameModel(mesa.Model):
         self.num_agents = scenario.num_agents
         self.model_type = scenario.model_type
         self.game_type = scenario.game_type
+        self.step: int = 0
 
-        self.agents_invested_amounts = []  # 记录所有代理的投资金额
-        self.agents_returned_amounts = []  # 记录所有代理的返还金额
+        self.agents_invested_amounts = {}  # 记录所有代理的投资金额
+        self.agents_returned_amounts = {}  # 记录所有代理的返还金额
+
         # 初始化记录数据结构
-        self.initial_sys_prompt = []
-        self.input_record = {}
-        self.output_record = {}
+        self.round_input_record = {}
+        self.round_output_record = {}
 
         # 创建网格
         self.grid = OrthogonalVonNeumannGrid((scenario.width, scenario.height), torus=True, random=self.random)
@@ -88,7 +87,6 @@ class GameModel(mesa.Model):
 
         # 创建智能体、给智能体设置ChatAgent（1、人物 2、根据不同的博弈类型设置初始提示词（不是第一轮））
         self.init_chat_agent()
-        self.step: int = 0
         # self.datacollector = mesa.DataCollector(
         #     agent_reporters={
         #         "Invested amount": lambda a: a.invested_amounts,
@@ -137,13 +135,14 @@ class GameModel(mesa.Model):
         return neighbor_pairs
 
     def init_chat_agent(self):
+        initial_sys_prompt = {}
         for i in range(self.num_agents):
             agent = self.get_agent(i)
             agent.unique_id = agent.unique_id - 1
 
             character = p_characters[i]
-            position = f"Your ID: {agent.unique_id}. Your position in the lattice: {agent.cell.coordinate}. Your neighbors in the lattice network: {agent.neighbor_ids}."
-            content:str = character+p_system_prompt+position+p_player_restrictions[1].get("Free payer")+p_ensure
+            position = p_position_template.format(id=agent.unique_id, coordinate=agent.cell.coordinate, neighbors=agent.neighbor_ids)
+            content: str = character + p_system_prompt + position + p_player_restrictions.get("Free player") + p_ensure
             # 设置ChatAgent
             agent.set_llm_agent(
                 ChatAgent(
@@ -159,28 +158,22 @@ class GameModel(mesa.Model):
             )
 
             # 记录人物特征与初始系统提示词 initial_sys_prompt
-            self.initial_sys_prompt.append({
-                f"agent_{agent.unique_id}_position_{agent.cell.coordinate}": content
-            })
+            initial_sys_prompt[f"agent_{agent.unique_id}_position_{agent.cell.coordinate}"] = content
+
+        self.save_records(initial_sys_prompt)
 
     def _step(self):
         """模型每一步的执行"""
         self.step += 1
-        is_first_round = True if self.step == 1 else False
-        round_key = f"round_{self.step}"
-        if round_key not in self.input_record:
-            self.input_record[round_key] = []
-        if round_key not in self.output_record:
-            self.output_record[round_key] = []
 
         # 1. 依次扮演信托者
-        self.play_investor(player_type = "Investor",is_first_round=is_first_round,round_key=round_key)
+        self.role_stage(player_type="investor")
 
         # 2. 整理所有信托者的回复
         self.record_agent_investment()
 
         # 3. 依次扮演受托人
-        self.play_trustee(is_first_round,round_key)
+        self.role_stage(player_type="trustee")
 
         # 4. 整理所有受托人的回复
         self.record_agent_return()
@@ -188,42 +181,52 @@ class GameModel(mesa.Model):
         # 5. 计算收益
         self.agents.do("update_payoff")
 
-        # 6. 每轮结束后保存记录
-        # self.save_records()
+        self.save_records()
+
+        # 6. 重置记录
+        self.round_input_record.clear()
+        self.round_output_record.clear()
 
         # 7. 收集数据
         # self.datacollector.collect(self)
 
-    def play_investor(self, player_type = "Investor", is_first_round=True, round_key="round_1"):
-
-        round_input = {"agent_" + str(i): [] for i in range(self.params.width * self.params.height)}
-        round_output = {"agent_" + str(i): [] for i in range(self.params.width * self.params.height)}
+    def role_stage(self, player_type="investor"):
 
         logger.info(f"\n{'=' * 60}")
-        logger.info(f"📊 第 {self.step} 轮博弈 - 投资者阶段开始")
+        logger.info(f"📊 第 {self.step} 轮博弈 - {player_type} 阶段开始")
         logger.info(f"{'=' * 60}")
 
+        agent_input = {}
+        agent_output = {}
         for i in range(self.num_agents):
             focal_agent = self.get_agent(i)
 
             add_info = ''
-            investor_prompt = self.prepare_prompt(is_first_round=is_first_round, additional_info=add_info)
+            prompt = self.prepare_prompt(agent=focal_agent, player_type=player_type, additional_info=add_info)
             # focal_agent_response = self._call_llm(focal_agent=focal_agent, prompt=investor_prompt, player_type="Investor")
             # 使用轻量级的正则表达式提取，（无需额外API调用）
-            value = []
+            invest_value = {}
             for id in focal_agent.neighbor_ids:
-                value.append(re.search(r'id:\d', '3'))
-            focal_agent_response = "作为 Emily，一名习惯用逻辑和算法思考的软件工程师，我开始分析这一轮的游戏策略。这是一个对称的信任博弈，处于多轮实验的初期阶段。虽然第一轮没有历史数据可以参考，但在重复博弈的背景下，建立互惠的合作规范对于最大化长期总收益至关重要。\n从数学期望来看，如果我不发送任何代币（x=0），虽然能确保不亏损，但也无法获得信托投资带来的潜在增值回报，这会破坏合作的可能性。反之，如果发送全部 5 个代币，风险过高。考虑到我是一个追求卓越的分析师，我会选择一个既能有效传递信任信号，又能保留一定安全边际的数量。发送 4 个代币意味着我将大部分资源投入到合作伙伴手中，这向邻居展示了强烈的合作意愿，同时也留下了一个代币作为风险缓冲。鉴于目前所有邻居的情况相同，且我是自由玩家，可以对每个邻居独立决策，但为了确立一致的社交规范，我对这两个邻居将采取相同的策略。\nFinally, I decide to send [2: 4, 3: 4] to each neighbor."
-            invested_amounts = self.extract_decisions_regex(focal_agent_response)
+                invest_value[id] = random_integers(0, 5)
+            focal_agent_response = f"作为 Emily，一名习惯用逻辑和算法思考的软件工程师，我开始分析这一轮的游戏策略。这是一个对称的信任博弈，处于多轮实验的初期阶段。虽然第一轮没有历史数据可以参考，但在重复博弈的背景下，建立互惠的合作规范对于最大化长期总收益至关重要。\n从数学期望来看，如果我不发送任何代币（x=0），虽然能确保不亏损，但也无法获得信托投资带来的潜在增值回报，这会破坏合作的可能性。反之，如果发送全部 5 个代币，风险过高。考虑到我是一个追求卓越的分析师，我会选择一个既能有效传递信任信号，又能保留一定安全边际的数量。发送 4 个代币意味着我将大部分资源投入到合作伙伴手中，这向邻居展示了强烈的合作意愿，同时也留下了一个代币作为风险缓冲。鉴于目前所有邻居的情况相同，且我是自由玩家，可以对每个邻居独立决策，但为了确立一致的社交规范，我对这两个邻居将采取相同的策略。\nFinally, I decide to send {invest_value} to each neighbor."
+            send_amounts = self.extract_decisions_regex(focal_agent_response)
 
-            focal_agent.I_invested_amounts.append(invested_amounts)
-            self.agents_invested_amounts.append(invested_amounts)
+            if player_type == "investor":
+                focal_agent.I_invested_1.append(send_amounts)
+                self.agents_invested_amounts[focal_agent.unique_id] = invest_value
+            elif player_type == "trustee":
+                focal_agent.T_returned_3.append(send_amounts)
+                self.agents_returned_amounts[focal_agent.unique_id] = invest_value
             # 记录投资者输入提示词和输出回复
-            round_input[f"agent_{i}"].append({f"as_investor": investor_prompt})
-            round_output[f"agent_{i}"].append({f"as_investor": focal_agent_response})
+            agent_input[f"agent_{focal_agent.unique_id}"] = prompt
+            agent_output[f"agent_{focal_agent.unique_id}"] = focal_agent_response
 
-        self.input_record[round_key].append({"investor_input": round_input})
-        self.output_record[round_key].append({"investor_output": round_output})
+        if player_type == "investor":
+            self.round_input_record["as_investor"] = agent_input
+            self.round_output_record["as_investor"] = agent_output
+        elif player_type == "trustee":
+            self.round_input_record["as_trustee"] = agent_input
+            self.round_output_record["as_trustee"] = agent_output
 
         logger.info(f"✅ 第 {self.step} 轮投资者阶段完成\n")
 
@@ -232,9 +235,8 @@ class GameModel(mesa.Model):
         logger.info(f"📊 第 {self.step} 轮博弈 - 受托人阶段开始")
         logger.info(f"{'=' * 60}")
 
-        round_input = {"agent_" + str(i): [] for i in range(self.params.width * self.params.height)}
-        round_output = {"agent_" + str(i): [] for i in range(self.params.width * self.params.height)}
-
+        agent_input = {}
+        agent_output = {}
         for i in range(self.num_agents):
             focal_agent = self.get_agent(i)
 
@@ -244,26 +246,43 @@ class GameModel(mesa.Model):
             # 使用轻量级的正则表达式提取，（无需额外API调用）
             returned_amounts = self.extract_decisions_regex(focal_agent_response.content)
 
-            focal_agent.T_returned_amounts.append(returned_amounts)
-            self.agents_returned_amounts.append(returned_amounts)
-            # 记录投资者输入提示词和输出回复
-            round_input[f"agent_{i}"].append({f"as_trustee": trustee_prompt})
-            round_output[f"agent_{i}"].append({f"as_trustee": focal_agent_response.content})
+            # focal_agent.T_returned_amounts.append(returned_amounts)
+            # self.agents_returned_amounts.append(returned_amounts)
 
-        self.input_record[round_key].append({"trustee_input": round_input})
-        self.output_record[round_key].append({"trustee_output": round_output})
+            # 记录投资者输入提示词和输出回复
+            agent_input[f"agent_{focal_agent.unique_id}"] = trustee_prompt
+            agent_output[f"agent_{focal_agent.unique_id}"] = focal_agent_response
+        self.round_input_record["as_trustee"] = agent_input
+        self.round_output_record["as_trustee"] = agent_output
 
         logger.info(f"✅ 第 {self.step} 轮受托人阶段完成\n")
 
+    def prepare_prompt(self, agent, player_type, additional_info="") -> str:
 
-    def prepare_prompt(self, is_first_round, additional_info="") -> str:
-        game_stage = p_decision_stages[0].get("As investor")
-        output_r = p_output_requirements[1].get("Format")
-        if is_first_round:
-            investor_prompt = game_stage + output_r
+        prompt = additional_info
+        output_r = p_output_requirements.get("Format")
+        if self.step == 1:
+            if player_type == "investor":
+                decision_stages = p_decision_stages.get("investor")
+                prompt = decision_stages + output_r
+            elif player_type == "trustee":
+                received_amounts = agent.T_received_2[-1]
+                investor_decision = p_decision.format(step=self.step, received_amounts=received_amounts)
+                decision_stages = p_decision_stages.get("trustee")
+                prompt = investor_decision + decision_stages + output_r
+
         else:
-            investor_prompt = additional_info + game_stage + output_r
-        return investor_prompt
+            if player_type == "investor":
+                memory = p_memory.format(I_invested_1=agent.I_invested_1, I_received_4=agent.I_received_4, T_received_2=agent.T_received_2, T_returned_3=agent.T_returned_3, payoff=agent.payoff)
+                decision_stages = p_decision_stages.get("investor")
+                prompt = memory + decision_stages + output_r
+            elif player_type == "trustee":
+                received_amounts = agent.T_received_2[-1]
+                investor_decision = p_decision.format(step=self.step, received_amounts=received_amounts)
+                decision_stages = p_decision_stages.get("trustee")
+                prompt = investor_decision + decision_stages + output_r
+
+        return prompt
 
     def _call_llm(self, focal_agent, prompt, player_type="Investor"):
         import time
@@ -284,22 +303,37 @@ class GameModel(mesa.Model):
             for neighbor_id in focal_agent.neighbor_ids:
                 neighbor_agent = self.get_agent(neighbor_id)
 
-                if neighbor_agent.I_invested_amounts:
-                    last_investment = neighbor_agent.I_invested_amounts[-1]
+                if neighbor_agent.I_invested_1:
+                    last_investment = neighbor_agent.I_invested_1[-1]
 
                     amount_to_focal = last_investment.get(focal_agent.unique_id, 0)
 
                     received_from_neighbors[neighbor_id] = amount_to_focal
 
-            focal_agent.T_received_amounts.append(received_from_neighbors)
+            focal_agent.T_received_2.append(received_from_neighbors)
 
             logger.debug(f"Agent {i} 收到邻居投资: {received_from_neighbors}")
 
         # self.agents_invested_amounts = []
+
     def record_agent_return(self):
-        # for i in range(self.params.width * self.params.height):
-        #     focal_agent = self.get_agent(i)
-        pass
+        for i in range(self.num_agents):
+            focal_agent = self.get_agent(i)
+
+            returned_from_neighbors = {}
+            for neighbor_id in focal_agent.neighbor_ids:
+                neighbor_agent = self.get_agent(neighbor_id)
+
+                if neighbor_agent.T_returned_3:
+                    last_return = neighbor_agent.T_returned_3[-1]
+
+                    amount_to_focal = last_return.get(focal_agent.unique_id, 0)
+
+                    returned_from_neighbors[neighbor_id] = amount_to_focal
+
+            focal_agent.I_received_4.append(returned_from_neighbors)
+
+            logger.info(f"Agent {i} 收到邻居返还: {returned_from_neighbors}")
 
     def extract_decisions_regex(self, answer):
         pattern = r"Finally,\s*I\s+decide\s+to\s+send\s*\[([^\]]+)\]"
@@ -337,26 +371,32 @@ class GameModel(mesa.Model):
 
         return result
 
-    def save_records(self):
+    def save_records(self, data=None):
         """保存记录到JSON文件"""
         results_dir = os.path.join(CommonUtils.get_project_root_path(), "results")
         os.makedirs(results_dir, exist_ok=True)
-
-        record_data = [
-            {
-                "initial_sys_prompt": self.initial_sys_prompt
-            },
-            {
-                "input_record": self.input_record
-            },
-            {
-                "output_record": self.output_record
-            }
-        ]
-
         record_file = os.path.join(results_dir, "record_model_test.json")
-        with open(record_file, "w", encoding="utf-8") as f:
-            json.dump(record_data, f, ensure_ascii=False, indent=2)
+
+        if self.step == 0:
+            record_data = {
+                "initial_sys_prompt": data,
+                "input_record": {},
+                "output_record": {}
+            }
+            with open(record_file, "w", encoding="utf-8") as f:
+                json.dump(record_data, f, ensure_ascii=False, indent=2)
+            logger.info(f"✅ 初始化记录文件: {record_file}")
+        else:
+            with open(record_file, "r", encoding="utf-8") as f:
+                record_data = json.load(f)
+
+            record_data["input_record"][f"round_{self.step}"] = self.round_input_record
+            record_data["output_record"][f"round_{self.step}"] = self.round_output_record
+
+            with open(record_file, "w", encoding="utf-8") as f:
+                json.dump(record_data, f, ensure_ascii=False, indent=2)
+
+            logger.debug(f"✅ 第 {self.step} 轮记录已保存到文件")
 
     def run_model(self, max_round=100):
         """运行模型指定步数"""
@@ -369,6 +409,7 @@ class GameModel(mesa.Model):
     def get_agent(self, agent_id):
         """根据ID获取智能体"""
         return self.agents[agent_id]
+
     def print_final_stats(self):
         """打印最终统计信息"""
         """打印最终统计信息"""

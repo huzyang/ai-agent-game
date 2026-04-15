@@ -107,7 +107,7 @@ def main():
     multi_round_exp(params=params)
 
     run_time = format_run_time(time.time() - start_time)
-    logger.info(f"批量运行完成，耗时: {run_time:.2f}秒")
+    logger.info(f"批量运行完成，耗时: {run_time}")
 
 
 if __name__ == "__main__":
