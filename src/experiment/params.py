@@ -45,16 +45,17 @@ class GameScenario(Scenario):
     torus: bool = True
     model_type: str = ModelType.QWEN3_5_FLASH.value
     game_type: str = GameType.TRUST.value
+    proportion: float = 1 # 自由节点比例
 
 class Params:
 
     def __init__(self):
-        self.num_agents = GameScenario.num_agents  # 节点数
-        self.width: int = int(self.num_agents ** 0.5)  # 根号 N
-        self.height: int = self.width
-        self.p = 0.5  # 自由节点比例
+        # self.num_agents = GameScenario.num_agents  # 节点数
+        # self.width: int = int(self.num_agents ** 0.5)  # 根号 N
+        # self.height: int = self.width
+        # self.proportion = GameScenario.proportion  # 自由节点比例
+        # self.game_type = GameScenario.game_type
         self.rounds = 2  # 游戏轮数
-        self.game_type = GameType.TRUST.value
 
         ################# LLM 参数 ####################
         load_dotenv()
@@ -73,9 +74,14 @@ class Params:
     @property
     def model_init_params(self):
         return {
-            'num_agents': self.num_agents,
-            'rounds': self.rounds,
-            'game_type': self.game_type
+            'num_agents': GameScenario.num_agents,
+            'width': GameScenario.width,
+            'height': GameScenario.height,
+            'torus': GameScenario.torus,
+            'model_type': GameScenario.model_type,
+            'game_type': GameScenario.game_type,
+            'proportion': GameScenario.proportion,
+            'rounds': self.rounds
         }
 
     def print_model_init_params(self):
@@ -86,11 +92,7 @@ class Params:
 
     def print_all_params(self):
         """打印所有参数"""
-        print(f"\n对称信任博弈实验参数:")
-        print(f"  节点数量 num_agents = {self.num_agents}")
-        print(f"  游戏轮数 rounds = {self.rounds}")
-
-        print(f"{'=' * 50}\n")
+        pass
 
     def record_params(self):
         """将参数转换为字典"""

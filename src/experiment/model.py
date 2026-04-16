@@ -5,16 +5,14 @@ import re
 import sys
 import logging
 import numpy as np
-from numpy.random import random_integers
-
+import random
 from agents import BaseAgent
-from params import Params, ModelType, GameType
+from params import Params, GameScenario
 from src.utils import CommonUtils
 import multiprocessing as mp
 
 import mesa
 from mesa.discrete_space import OrthogonalVonNeumannGrid
-from mesa.experimental.scenarios import Scenario
 
 from camel.models import ModelFactory
 from camel.types import ModelPlatformType
@@ -50,16 +48,6 @@ p_decision_stages = all_prompts.get("Decision stages", "")
 p_output_requirements = all_prompts.get("Output requirements", "")
 p_system_prompt = p_like_people + p_experiment_info + p_game_rules.get("trust game")
 
-
-class GameScenario(Scenario):
-    """Scenario for model."""
-    num_agents: int = 4  # 节点数
-    width: int = int(num_agents ** 0.5)  # 根号 N
-    height: int = width
-    model_type: str = ModelType.QWEN3_5_FLASH.value
-    game_type: str = GameType.TRUST.value
-
-
 class GameModel(mesa.Model):
 
     def __init__(
@@ -74,8 +62,11 @@ class GameModel(mesa.Model):
         # 初始化model
         self.params = Params()
         self.num_agents = scenario.num_agents
+        self.height = scenario.height
+        self.width = scenario.width
         self.model_type = scenario.model_type
         self.game_type = scenario.game_type
+        self.proportion = scenario.proportion
         self.step: int = 0
 
         self.agents_invested_amounts = {}  # 记录所有代理的投资金额
@@ -126,8 +117,8 @@ class GameModel(mesa.Model):
         返回格式：[[agent_id_1, agent_id_2], ...]
         """
         neighbor_pairs = []
-        width = self.params.width
-        height = self.params.height
+        width = self.width
+        height = self.height
 
         # 遍历所有节点
         for x in range(width):
@@ -149,13 +140,26 @@ class GameModel(mesa.Model):
 
     def init_chat_agent(self):
         initial_sys_prompt = {}
+
+        # 计算自由玩家数量
+        num_free_players = int(self.num_agents * self.proportion)
+        restriction_set = []
+        for i in range(self.num_agents):
+            # 根据比例设置玩家类型
+            if i < num_free_players:
+                restriction_set.append(p_player_restrictions.get("Free player"))
+            else:
+                restriction_set.append(p_player_restrictions.get("Constrained player"))
+            random.shuffle(restriction_set)
+
         for i in range(self.num_agents):
             agent = self.get_agent(i)
             agent.unique_id = agent.unique_id - 1
 
             character = p_characters[i]
             position = p_position_template.format(id=agent.unique_id, coordinate=agent.cell.coordinate, neighbors=agent.neighbor_ids)
-            content: str = character + p_system_prompt + position + p_player_restrictions.get("Free player") + p_ensure
+            content: str = character + p_system_prompt + position + restriction_set[i] + p_ensure
+
             # 设置ChatAgent
             agent.set_llm_agent(
                 ChatAgent(
@@ -220,7 +224,7 @@ class GameModel(mesa.Model):
             # 使用轻量级的正则表达式提取，（无需额外API调用）
             invest_value = {}
             for id in focal_agent.neighbor_ids:
-                invest_value[id] = random_integers(0, 5)
+                invest_value[id] = random.randint(0, 5)
             focal_agent_response = f"作为 Emily，一名习惯用逻辑和算法思考的软件工程师，我开始分析这一轮的游戏策略。这是一个对称的信任博弈，处于多轮实验的初期阶段。虽然第一轮没有历史数据可以参考，但在重复博弈的背景下，建立互惠的合作规范对于最大化长期总收益至关重要。\n从数学期望来看，如果我不发送任何代币（x=0），虽然能确保不亏损，但也无法获得信托投资带来的潜在增值回报，这会破坏合作的可能性。反之，如果发送全部 5 个代币，风险过高。考虑到我是一个追求卓越的分析师，我会选择一个既能有效传递信任信号，又能保留一定安全边际的数量。发送 4 个代币意味着我将大部分资源投入到合作伙伴手中，这向邻居展示了强烈的合作意愿，同时也留下了一个代币作为风险缓冲。鉴于目前所有邻居的情况相同，且我是自由玩家，可以对每个邻居独立决策，但为了确立一致的社交规范，我对这两个邻居将采取相同的策略。\nFinally, I decide to send {invest_value} to each neighbor."
             send_amounts = self.extract_decisions_regex(focal_agent_response)
 
@@ -242,33 +246,6 @@ class GameModel(mesa.Model):
             self.round_output_record["as_trustee"] = agent_output
 
         logger.info(f"✅ 第 {self.step} 轮-{player_type} 阶段完成\n")
-
-    def play_trustee(self, is_first_round, round_key):
-        logger.info(f"\n{'=' * 60}")
-        logger.info(f"📊 第 {self.step} 轮博弈 - 受托人阶段开始")
-        logger.info(f"{'=' * 60}")
-
-        agent_input = {}
-        agent_output = {}
-        for i in range(self.num_agents):
-            focal_agent = self.get_agent(i)
-
-            add_info = ''
-            trustee_prompt = self.prepare_prompt(is_first_round=is_first_round, additional_info=add_info)
-            focal_agent_response = self._call_llm(focal_agent=focal_agent, prompt=trustee_prompt, player_type="Trustee")
-            # 使用轻量级的正则表达式提取，（无需额外API调用）
-            returned_amounts = self.extract_decisions_regex(focal_agent_response.content)
-
-            # focal_agent.T_returned_amounts.append(returned_amounts)
-            # self.agents_returned_amounts.append(returned_amounts)
-
-            # 记录投资者输入提示词和输出回复
-            agent_input[f"agent_{focal_agent.unique_id}"] = trustee_prompt
-            agent_output[f"agent_{focal_agent.unique_id}"] = focal_agent_response
-        self.round_input_record["as_trustee"] = agent_input
-        self.round_output_record["as_trustee"] = agent_output
-
-        logger.info(f"✅ 第 {self.step} 轮受托人阶段完成\n")
 
     def prepare_prompt(self, agent, player_type, additional_info="") -> str:
 
@@ -430,7 +407,7 @@ class GameModel(mesa.Model):
         print(f"🎉 模型运行完成！")
         print(f"{'=' * 70}")
         print(f"  • 总轮数: {self.step}")
-        print(f"  • 网格大小: {self.params.width} x {self.params.height}")
-        print(f"  • 智能体总数: {len(self.agents)}")
+        print(f"  • 网格大小: {self.width} x {self.height}")
+        print(f"  • 智能体总数: {self.num_agents}")
         print(f"  • 记录文件: results/record_model_test.json")
         print(f"{'=' * 70}\n")
