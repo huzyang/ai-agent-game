@@ -22,7 +22,7 @@ class BaseAgent(CellAgent):
         self.T_returned_3 = []
         self.I_received_4 = []
         self.payoff = 0.0  # 每一轮的最终收益
-
+        self.type_restriction = ""
         self.llm_agent = None
 
     def __str__(self):

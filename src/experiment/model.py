@@ -75,6 +75,7 @@ class GameModel(mesa.Model):
         # 初始化记录数据结构
         self.round_input_record = {}
         self.round_output_record = {}
+        self.all_data = []  # 存储所有轮次的数据行
 
         # 创建网格
         self.grid = OrthogonalVonNeumannGrid((scenario.width, scenario.height), torus=True, random=self.random)
@@ -143,14 +144,17 @@ class GameModel(mesa.Model):
 
         # 计算自由玩家数量
         num_free_players = int(self.num_agents * self.proportion)
+
+        # 创建限制类型列表：前num_free_players个为自由玩家，其余为受限玩家
         restriction_set = []
         for i in range(self.num_agents):
-            # 根据比例设置玩家类型
             if i < num_free_players:
                 restriction_set.append(p_player_restrictions.get("Free player"))
             else:
                 restriction_set.append(p_player_restrictions.get("Constrained player"))
-            random.shuffle(restriction_set)
+
+        # 随机打乱顺序以随机分配玩家类型
+        random.shuffle(restriction_set)
 
         for i in range(self.num_agents):
             agent = self.get_agent(i)
@@ -160,6 +164,7 @@ class GameModel(mesa.Model):
             position = p_position_template.format(id=agent.unique_id, coordinate=agent.cell.coordinate, neighbors=agent.neighbor_ids)
             content: str = character + p_system_prompt + position + restriction_set[i] + p_ensure
 
+            agent.type_restriction = "free" if "free player" in restriction_set[i] else "constrained"
             # 设置ChatAgent
             agent.set_llm_agent(
                 ChatAgent(
@@ -198,11 +203,12 @@ class GameModel(mesa.Model):
         # 5. 计算收益
         self.agents.do("update_payoff")
 
+        # 新增：收集当前轮次数据
+        self._collect_data()
         self.save_records()
 
         # 6. 重置记录
-        self.round_input_record.clear()
-        self.round_output_record.clear()
+        self.reset_record()
 
         # 7. 收集数据
         # self.datacollector.collect(self)
@@ -388,17 +394,56 @@ class GameModel(mesa.Model):
 
             logger.debug(f"✅ 第 {self.step} 轮记录已保存到文件")
 
-    def run_model(self, max_round=100):
+    def run_model(self, max_round=50)-> list:
         """运行模型指定步数"""
         import tqdm
         for i in tqdm.trange(max_round):
             self._step()
 
         self.print_final_stats()
+        return self.all_data
+
 
     def get_agent(self, agent_id):
         """根据ID获取智能体"""
         return self.agents[agent_id]
+
+    def _collect_data(self):
+        """
+        收集当前轮次所有两两博弈的数据（每个方向一条记录）。
+        每条记录对应一次投资者-受托者博弈。
+        """
+        for agent in self.agents:
+            # 获取当前轮次的数据
+            invested_dict = agent.I_invested_1[-1] if agent.I_invested_1 else {}  # 作为投资者，委托给各邻居的金额
+            returned_dict = agent.I_received_4[-1] if agent.I_received_4 else {}  # 作为投资者，从各邻居收到的返还金额
+
+            for neighbor_id in agent.neighbor_ids:
+                invested_amount = invested_dict.get(neighbor_id, 0)
+                returned_amount = returned_dict.get(neighbor_id, 0)
+
+                # 计算收益
+                investor_payoff = (5 - invested_amount) + returned_amount
+                trustee_payoff = 3 * invested_amount - returned_amount
+
+                row = {
+                    "round": self.step,
+                    "proportion": self.proportion,
+                    "investor_agent_id": agent.unique_id,
+                    "investor_agent_type": agent.type_restriction,
+                    "trustee_neighbor_id": neighbor_id,
+                    "invested_amount": invested_amount,
+                    "returned_amount": returned_amount,
+                    "investor_agent_payoff": investor_payoff,
+                    "trustee_agent_payoff": trustee_payoff,
+                }
+                self.all_data.append(row)
+    def reset_record(self):
+        """重置记录"""
+        self.round_input_record = {}
+        self.round_output_record = {}
+        self.agents_invested_amounts = {}
+        self.agents_returned_amounts = {}
 
     def print_final_stats(self):
         """打印最终统计信息"""

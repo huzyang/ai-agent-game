@@ -7,6 +7,7 @@ import os
 import sys
 import logging
 import tqdm
+import pandas as pd
 from datetime import datetime
 from src.experiment.params import Params,GameScenario
 from src.experiment.model import GameModel
@@ -15,14 +16,12 @@ from src.utils import CommonUtils
 # 添加当前目录到路径
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-
+logger = logging.getLogger('experiment')
+logger.setLevel(logging.INFO)
 def setup_logging(output_dir):
     """设置日志输出到文件和控制台"""
     os.makedirs(output_dir, exist_ok=True)
     log_file = os.path.join(output_dir, f"run.log")
-
-    logger = logging.getLogger('experiment')
-    logger.setLevel(logging.INFO)
 
     if logger.handlers:
         logger.handlers.clear()
@@ -39,10 +38,7 @@ def setup_logging(output_dir):
 
     logger.addHandler(file_handler)
     logger.addHandler(console_handler)
-
     logger.propagate = False
-
-    return logger
 
 
 def format_run_time(seconds):
@@ -67,7 +63,7 @@ def format_run_time(seconds):
     else:  # 小于1分钟
         return f"{seconds:.2f}秒"
 
-def multi_round_exp(params: Params):
+def multi_round_exp(params: Params,output_dir):
     """
     执行多轮实验的主函数，针对给定的模型列表进行多轮测试
     参数:
@@ -77,34 +73,47 @@ def multi_round_exp(params: Params):
     """
     model_type_list = params.model_type_list
     iterations = params.iterations
-    for model_type in model_type_list:
+    total_iterations = len(model_type_list) * iterations
+    with tqdm.tqdm(total=total_iterations, desc="Overall Progress") as pbar:
+        for model_type in model_type_list:
+            for iteration in range(1, iterations + 1):
+                # 执行多轮实验，传入模型、角色列表、文件夹路径等参数
+                game_model = GameModel(scenario=GameScenario())
+                all_results = game_model.run_model(params.rounds)
 
-        # 使用t进度条进行多轮实验
-        for i in tqdm.trange(iterations):
-            # 执行多轮实验，传入模型、角色列表、文件夹路径等参数
-            game_model = GameModel(scenario=GameScenario())
-            game_model.run_model(params.rounds)
+                filename = f"{params.game_type}_p-{params.proportion}_{iteration}.csv"
+                filepath = os.path.join(output_dir, filename)
+
+                df = pd.DataFrame(all_results)
+                df.to_csv(filepath, index=False, encoding='utf-8')
+                logger.info(f"使用{model_type}大模型，第{iteration}次重复运行的实验结果已保存到 {filepath}")
+
+                pbar.update(1)
+                pbar.set_postfix({
+                    'model': model_type.value if hasattr(model_type, 'value') else model_type,
+                    'iteration': iteration
+                })
+
 
 
 def main():
     params = Params()
     # 创建输出目录
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_dir = os.path.join(CommonUtils.get_project_root_path(), "outputs", f"{timestamp}_{params.model_type}_round-{params.rounds}")
+    output_dir = os.path.join(CommonUtils.get_project_root_path(), "outputs", f"{timestamp}_{params.model_type}_{params.game_type}")
     os.makedirs(output_dir, exist_ok=True)
-    output_dir = os.path.join(CommonUtils.get_project_root_path(), "outputs", f"{timestamp}_{params.model_type}_round-{params.rounds}")
 
-    logger = setup_logging(output_dir)
+    setup_logging(output_dir)
     logger.info("=" * 60)
     logger.info("开始运行LLM智能体博弈实验...")
     logger.info("=" * 60)
 
     import time
     start_time = time.time()
-    multi_round_exp(params=params)
+    multi_round_exp(params=params, output_dir=output_dir)
 
     run_time = format_run_time(time.time() - start_time)
-    logger.info(f"LLM智能体博弈实验运行完成，共耗时: {run_time}")
+    logger.info(f"所有LLM智能体博弈实验运行完成，共耗时: {run_time}")
 
 
 if __name__ == "__main__":

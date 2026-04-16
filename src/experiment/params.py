@@ -45,7 +45,7 @@ class GameScenario(Scenario):
     torus: bool = True
     model_type: str = ModelType.QWEN3_5_FLASH.value
     game_type: str = GameType.TRUST.value
-    proportion: float = 1 # 自由节点比例
+    proportion: float = 0.5 # 自由节点比例
 
 class Params:
 
@@ -57,6 +57,7 @@ class Params:
         self.model_type = GameScenario.model_type
         self.game_type = GameScenario.game_type
         self.rounds = 2  # 游戏轮数
+        self.iterations = 1
 
         ################# LLM 参数 ####################
         load_dotenv()
@@ -68,9 +69,11 @@ class Params:
         self.temperature = 0.5
         self.max_tokens = 4096
         ################# mesa 参数 ####################
-        self.iterations = 1
         self.number_processes = 4
         self.data_collection_period = 1
+
+        ################# 保存信息 #####################
+        self.output_dir = os.path.join(CommonUtils.get_project_root_path(), "outputs")
 
     @property
     def model_init_params(self):
