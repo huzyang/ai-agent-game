@@ -50,11 +50,12 @@ class GameScenario(Scenario):
 class Params:
 
     def __init__(self):
-        # self.num_agents = GameScenario.num_agents  # 节点数
-        # self.width: int = int(self.num_agents ** 0.5)  # 根号 N
-        # self.height: int = self.width
-        # self.proportion = GameScenario.proportion  # 自由节点比例
-        # self.game_type = GameScenario.game_type
+        self.num_agents = GameScenario.num_agents  # 节点数
+        self.width: int = int(self.num_agents ** 0.5)  # 根号 N
+        self.height: int = self.width
+        self.proportion = GameScenario.proportion  # 自由节点比例
+        self.model_type = GameScenario.model_type
+        self.game_type = GameScenario.game_type
         self.rounds = 2  # 游戏轮数
 
         ################# LLM 参数 ####################
@@ -64,7 +65,7 @@ class Params:
             raise ValueError("请设置环境变量 QWEN_API_KEY")
         self.api_base_url = os.getenv("QWEN_API_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
         self.model_type_list = [ModelType.QWEN3_5_FLASH]
-        self.temperature = 0.7
+        self.temperature = 0.5
         self.max_tokens = 4096
         ################# mesa 参数 ####################
         self.iterations = 1

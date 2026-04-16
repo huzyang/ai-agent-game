@@ -16,12 +16,10 @@ from src.utils import CommonUtils
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 
-def setup_logging():
+def setup_logging(output_dir):
     """设置日志输出到文件和控制台"""
-    log_dir = "outputs/logs"
-    os.makedirs(log_dir, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = os.path.join(log_dir, f"{timestamp}_run.log")
+    os.makedirs(output_dir, exist_ok=True)
+    log_file = os.path.join(output_dir, f"run.log")
 
     logger = logging.getLogger('experiment')
     logger.setLevel(logging.INFO)
@@ -81,14 +79,6 @@ def multi_round_exp(params: Params):
     iterations = params.iterations
     for model_type in model_type_list:
 
-        # 根据模型列表创建结果文件夹
-        # 创建输出目录
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_dir = os.path.join(CommonUtils.get_project_root_path(), "outputs", f"{timestamp}_{model_type}_round-{params.rounds}")
-        os.makedirs(output_dir, exist_ok=True)
-
-        # 生成初始设置，获取文件夹路径和额外的提示信息
-
         # 使用t进度条进行多轮实验
         for i in tqdm.trange(iterations):
             # 执行多轮实验，传入模型、角色列表、文件夹路径等参数
@@ -97,12 +87,17 @@ def multi_round_exp(params: Params):
 
 
 def main():
-    logger = setup_logging()
+    params = Params()
+    # 创建输出目录
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_dir = os.path.join(CommonUtils.get_project_root_path(), "outputs", f"{timestamp}_{params.model_type}_round-{params.rounds}")
+    os.makedirs(output_dir, exist_ok=True)
+    output_dir = os.path.join(CommonUtils.get_project_root_path(), "outputs", f"{timestamp}_{params.model_type}_round-{params.rounds}")
+
+    logger = setup_logging(output_dir)
     logger.info("=" * 60)
     logger.info("开始运行LLM智能体博弈实验...")
     logger.info("=" * 60)
-
-    params = Params()
 
     import time
     start_time = time.time()
