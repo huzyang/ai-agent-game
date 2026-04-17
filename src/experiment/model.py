@@ -4,21 +4,18 @@ import json
 import re
 import sys
 import logging
-import numpy as np
 import random
-from agents import BaseAgent
-from params import Params, GameScenario
-from src.utils import CommonUtils
-import multiprocessing as mp
-
-import mesa
-from mesa.discrete_space import OrthogonalVonNeumannGrid
-
 from camel.models import ModelFactory
 from camel.types import ModelPlatformType
 from camel.agents import ChatAgent
 from camel.messages import BaseMessage
 from camel.types.enums import RoleType
+
+import mesa
+from mesa.discrete_space import OrthogonalVonNeumannGrid
+from agents import BaseAgent
+from params import Params, GameScenario
+from src.utils import CommonUtils
 
 logger = logging.getLogger('experiment')
 if not logger.handlers:
@@ -68,6 +65,8 @@ class GameModel(mesa.Model):
         self.game_type = scenario.game_type
         self.proportion = scenario.proportion
         self.step: int = 0
+        self.run_id = scenario.run_id
+        self.iteration = scenario.iteration
 
         self.agents_invested_amounts = {}  # 记录所有代理的投资金额
         self.agents_returned_amounts = {}  # 记录所有代理的返还金额
@@ -369,9 +368,9 @@ class GameModel(mesa.Model):
 
     def save_records(self, data=None):
         """保存记录到JSON文件"""
-        results_dir = os.path.join(CommonUtils.get_project_root_path(), "results")
+        results_dir = os.path.join(CommonUtils.get_project_root_path(), "outputs", "qwen3.5-flash_trust_game")
         os.makedirs(results_dir, exist_ok=True)
-        record_file = os.path.join(results_dir, "record_model_test.json")
+        record_file = os.path.join(results_dir, f"QA-record_p-{self.proportion}.json")
 
         if self.step == 0:
             record_data = {
@@ -397,7 +396,7 @@ class GameModel(mesa.Model):
     def run_model(self, max_round=50)-> list:
         """运行模型指定步数"""
         import tqdm
-        for i in tqdm.trange(max_round):
+        for _ in tqdm.trange(max_round):
             self._step()
 
         self.print_final_stats()
@@ -427,7 +426,10 @@ class GameModel(mesa.Model):
                 trustee_payoff = 3 * invested_amount - returned_amount
 
                 row = {
+                    "run_id": self.run_id,
+                    "iteration": self.iteration,
                     "round": self.step,
+                    "num_agents": self.num_agents,
                     "proportion": self.proportion,
                     "investor_agent_id": agent.unique_id,
                     "investor_agent_type": agent.type_restriction,

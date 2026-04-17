@@ -5,6 +5,7 @@ from enum import Enum
 from src.utils import CommonUtils
 from dotenv import load_dotenv
 import os
+from mesa.experimental.scenarios import Scenario
 
 class ModelType(Enum):
     GPT_4 = "gpt-4"
@@ -36,28 +37,32 @@ class GameType(Enum):
     PDG = "pd_game"
     TRUST = "trust_game"
 
-from mesa.experimental.scenarios import Scenario
+
 class GameScenario(Scenario):
     """Scenario for model."""
-    num_agents: int = 4  # 节点数
+    num_agents: int = 9
     width: int = int(num_agents ** 0.5)  # 根号 N
     height: int = width
     torus: bool = True
     model_type: str = ModelType.QWEN3_5_FLASH.value
     game_type: str = GameType.TRUST.value
-    proportion: float = 0.5 # 自由节点比例
+    proportion: float = 0.5  # 自由节点比例
+
+    run_id: int = 1
+    iteration: int = 1
+
 
 class Params:
 
     def __init__(self):
-        self.num_agents = GameScenario.num_agents  # 节点数
+        self.num_agents = 9
         self.width: int = int(self.num_agents ** 0.5)  # 根号 N
         self.height: int = self.width
-        self.proportion = GameScenario.proportion  # 自由节点比例
-        self.model_type = GameScenario.model_type
-        self.game_type = GameScenario.game_type
-        self.rounds = 2  # 游戏轮数
-        self.iterations = 1
+        self.proportions = [0.5, 1]  # 自由节点比例
+        self.model_type_list = [ModelType.QWEN3_5_FLASH.value]
+        self.game_type = GameType.TRUST.value
+        self.rounds = 10  # 游戏轮数
+        self.iterations = 2
 
         ################# LLM 参数 ####################
         load_dotenv()
@@ -65,7 +70,6 @@ class Params:
         if not self.api_key:
             raise ValueError("请设置环境变量 QWEN_API_KEY")
         self.api_base_url = os.getenv("QWEN_API_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
-        self.model_type_list = [ModelType.QWEN3_5_FLASH]
         self.temperature = 0.5
         self.max_tokens = 4096
         ################# mesa 参数 ####################
@@ -78,13 +82,11 @@ class Params:
     @property
     def model_init_params(self):
         return {
-            'num_agents': GameScenario.num_agents,
-            'width': GameScenario.width,
-            'height': GameScenario.height,
-            'torus': GameScenario.torus,
-            'model_type': GameScenario.model_type,
-            'game_type': GameScenario.game_type,
-            'proportion': GameScenario.proportion,
+            'num_agents': self.num_agents,
+            'width': self.width,
+            'height': self.height,
+            'game_type': self.game_type,
+            'proportion': self.proportions,
             'rounds': self.rounds
         }
 
