@@ -58,11 +58,11 @@ class Params:
         self.num_agents = 9
         self.width: int = int(self.num_agents ** 0.5)  # 根号 N
         self.height: int = self.width
-        self.proportions = [0.5, 1]  # 自由节点比例
+        self.proportions = [1]  # 自由节点比例 0, 0.25, 0.5, 0.75,
         self.model_type_list = [ModelType.QWEN3_5_FLASH.value]
         self.game_type = GameType.TRUST.value
-        self.rounds = 10  # 游戏轮数
-        self.iterations = 2
+        self.rounds = 3  # 游戏轮数
+        self.iterations = 1
 
         ################# LLM 参数 ####################
         load_dotenv()
@@ -72,12 +72,6 @@ class Params:
         self.api_base_url = os.getenv("QWEN_API_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
         self.temperature = 0.5
         self.max_tokens = 4096
-        ################# mesa 参数 ####################
-        self.number_processes = 4
-        self.data_collection_period = 1
-
-        ################# 保存信息 #####################
-        self.output_dir = os.path.join(CommonUtils.get_project_root_path(), "outputs")
 
     @property
     def model_init_params(self):

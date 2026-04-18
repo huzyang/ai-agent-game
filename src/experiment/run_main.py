@@ -1,8 +1,7 @@
 """
-阶段2主运行脚本：分别运行囚徒困境、信任博弈、最后通牒博弈各50轮，
-使用两个智能体（可配置为受限或自由），验证基本功能。
+主运行脚本
 """
-
+import json
 import os
 import sys
 import logging
@@ -11,6 +10,7 @@ import pandas as pd
 from datetime import datetime
 from src.experiment.params import Params
 from src.experiment.model import GameModel, GameScenario
+from src.experiment.analysy import TrustGameAnalyzer
 from src.utils import CommonUtils
 
 # 添加当前目录到路径
@@ -65,6 +65,52 @@ def format_run_time(seconds):
         return f"{seconds:.2f}秒"
 
 
+def analyze_experiment_results(model_type: str, game_type: str):
+    """
+    分析实验结果并生成报告和图表
+
+    Args:
+        model_type: 模型类型
+        game_type: 博弈类型
+    """
+    output_dir = os.path.join(CommonUtils.get_project_root_path(), "outputs", f"{model_type}_{game_type}")
+
+    # 查找所有CSV文件
+    pattern = os.path.join(output_dir, "*.csv")
+    import glob
+    csv_files = glob.glob(pattern)
+
+    if not csv_files:
+        logger.warning(f"未找到CSV文件，跳过分析: {output_dir}")
+        return
+
+    logger.info(f"\n{'=' * 60}")
+    logger.info(f"📊 开始分析实验结果...")
+    logger.info(f"{'=' * 60}")
+    logger.info(f"找到 {len(csv_files)} 个CSV文件")
+
+    try:
+        # 创建分析器
+        analyzer = TrustGameAnalyzer(csv_files)
+
+        # 创建输出目录
+        figures_dir = os.path.join(output_dir, "figures")
+        report_path = os.path.join(output_dir, "analysis_report.txt")
+
+        # 生成分析报告
+        analyzer.generate_report(report_path)
+        logger.info(f"✅ 分析报告已保存: {report_path}")
+
+        # 生成图表
+        analyzer.plot_figures(figures_dir)
+        logger.info(f"✅ 图表已保存: {figures_dir}")
+
+        logger.info(f"✅ 实验分析完成！\n")
+
+    except Exception as e:
+        logger.error(f"❌ 实验分析失败: {str(e)}", exc_info=True)
+
+
 def multi_round_exp(params: Params):
     """
     执行多轮实验的主函数，针对给定的模型列表进行多轮测试
@@ -78,16 +124,41 @@ def multi_round_exp(params: Params):
     iterations = params.iterations
     proportions = params.proportions
     total_iterations = len(model_type_list) * len(proportions) * iterations
+
+    logger.info(f"\n{'#' * 80}")
+    logger.info(f"# {'实验配置概览':^76} #")
+    logger.info(f"{'#' * 80}")
+    logger.info(f"  • 模型列表: {[m.value if hasattr(m, 'value') else str(m) for m in model_type_list]}")
+    logger.info(f"  • 博弈类型: {params.game_type}")
+    logger.info(f"  • 智能体数量: {params.num_agents}")
+    logger.info(f"  • 网格大小: {params.width} x {params.height}")
+    logger.info(f"  • 自由玩家比例: {proportions}")
+    logger.info(f"  • 每模型迭代次数: {iterations}")
+    logger.info(f"  • 每实验轮次: {params.rounds}")
+    logger.info(f"  • 总实验次数: {total_iterations}")
+    logger.info(f"{'#' * 80}\n")
+
     run_id = 1
     with tqdm.tqdm(total=total_iterations, desc="Overall Progress") as pbar:
         for model_type in model_type_list:
+            model_name = model_type.value if hasattr(model_type, 'value') else str(model_type)
+            logger.info(f"\n{'=' * 80}")
+            logger.info(f"🔬 开始测试模型: {model_name}")
+            logger.info(f"{'=' * 80}")
+
             # 创建输出目录
             output_dir = os.path.join(CommonUtils.get_project_root_path(), "outputs", f"{model_type}_{params.game_type}")
             os.makedirs(output_dir, exist_ok=True)
 
             all_results = []
             for proportion in proportions:
+                logger.info(f"\n📌 自由玩家比例: {proportion:.0%}")
+                logger.info(f"  ├─ 迭代次数: {iterations}")
+                logger.info(f"  └─ 每迭代轮次: {params.rounds}")
+
                 for iteration in range(1, iterations + 1):
+                    logger.info(f"\n  ▶️  迭代 {iteration}/{iterations} (Run ID: {run_id})")
+
                     # 根据参数值构造GameScenario
                     scenario = GameScenario(
                         num_agents=params.num_agents,
@@ -101,17 +172,26 @@ def multi_round_exp(params: Params):
                     )
                     # 传入GameModel
                     game_model = GameModel(scenario=scenario)
-                    results = game_model.run_model(params.rounds)
+                    results, all_dialogue = game_model.run_model(params.rounds)
+
+                    # 将每次运行的结果列表扩展到总结果中
+                    all_results.extend(results)
+                    dialogue_file_name = f"run_id-{run_id}_QA-record_p-{proportion}_iter-{iteration}.json"
+                    dialogue_file_path = os.path.join(output_dir, dialogue_file_name)
+                    try:
+                        with open(dialogue_file_path, 'w', encoding='utf-8') as f:
+                            json.dump(all_dialogue, f, ensure_ascii=False, indent=2)
+                        logger.info(f"  ✅ 对话记录已保存: {dialogue_file_name}")
+                    except Exception as e:
+                        logger.error(f"  ❌ 保存对话记录失败: {dialogue_file_name}, 错误: {str(e)}")
 
                     pbar.update(1)
                     pbar.set_postfix({
-                        'model': model_type.value if hasattr(model_type, 'value') else model_type,
-                        'proportion': proportion,
-                        'run_id': run_id,
-                        'iteration': iteration
+                        'model': model_name[:15],
+                        'prop': f"{proportion:.0%}",
+                        'run': run_id,
+                        'iter': iteration
                     })
-                    # 将每次运行的结果列表扩展到总结果中
-                    all_results.extend(results)
                     run_id += 1
 
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -120,7 +200,18 @@ def multi_round_exp(params: Params):
 
             df = pd.DataFrame(all_results)
             df.to_csv(filepath, index=False, encoding='utf-8')
-            logger.info(f"使用{model_type}大模型，实验结果已保存到 {filepath}")
+
+            logger.info(f"\n{'=' * 80}")
+            logger.info(f"📊 模型 {model_name} 实验汇总")
+            logger.info(f"{'=' * 80}")
+            logger.info(f"  • 总数据行数: {len(all_results)}")
+            logger.info(f"  • CSV文件: {filename}")
+            logger.info(f"  • 保存路径: {output_dir}")
+            logger.info(f"{'=' * 80}\n")
+
+            # 对当前模型的实验结果进行分析
+            analyze_experiment_results(model_type, params.game_type)
+
 
 def main():
     setup_logging()

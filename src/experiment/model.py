@@ -5,6 +5,7 @@ import re
 import sys
 import logging
 import random
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from camel.models import ModelFactory
 from camel.types import ModelPlatformType
 from camel.agents import ChatAgent
@@ -12,6 +13,7 @@ from camel.messages import BaseMessage
 from camel.types.enums import RoleType
 
 import mesa
+from discord.ext.commands import param
 from mesa.discrete_space import OrthogonalVonNeumannGrid
 from agents import BaseAgent
 from params import Params, GameScenario
@@ -72,8 +74,9 @@ class GameModel(mesa.Model):
         self.agents_returned_amounts = {}  # 记录所有代理的返还金额
 
         # 初始化记录数据结构
-        self.round_input_record = {}
-        self.round_output_record = {}
+        self.initial_sys_prompt = {}
+        self.input_record = {}
+        self.output_record = {}
         self.all_data = []  # 存储所有轮次的数据行
 
         # 创建网格
@@ -139,8 +142,6 @@ class GameModel(mesa.Model):
         return neighbor_pairs
 
     def init_chat_agent(self):
-        initial_sys_prompt = {}
-
         # 计算自由玩家数量
         num_free_players = int(self.num_agents * self.proportion)
 
@@ -179,13 +180,15 @@ class GameModel(mesa.Model):
             )
 
             # 记录人物特征与初始系统提示词 initial_sys_prompt
-            initial_sys_prompt[f"agent_{agent.unique_id}_position_{agent.cell.coordinate}"] = content
-
-        self.save_records(initial_sys_prompt)
+            self.initial_sys_prompt[f"agent_{agent.unique_id}_position_{agent.cell.coordinate}"] = content
 
     def _step(self):
         """模型每一步的执行"""
         self.step += 1
+        # 初始化当前轮次的记录字典
+        round_key = f"round_{self.step}"
+        self.input_record[round_key] = {}
+        self.output_record[round_key] = {}
 
         # 1. 依次扮演信托者
         self.role_stage(player_type="investor")
@@ -202,55 +205,88 @@ class GameModel(mesa.Model):
         # 5. 计算收益
         self.agents.do("update_payoff")
 
-        # 新增：收集当前轮次数据
+        # 6：收集当前轮次数据
         self._collect_data()
-        self.save_records()
-
-        # 6. 重置记录
-        self.reset_record()
 
         # 7. 收集数据
         # self.datacollector.collect(self)
 
     def role_stage(self, player_type="investor"):
 
-        logger.info(f"{'=' * 60}")
-        logger.info(f"📊 第 {self.step} 轮博弈 - {player_type} 阶段开始")
+        logger.info(f"\n{'=' * 60}")
+        logger.info(f"📊 实验共{self.params.rounds}轮，第 {self.step} 轮博弈 - {player_type} 阶段开始")
         logger.info(f"{'=' * 60}")
 
-        agent_input = {}
-        agent_output = {}
+        agent_input_round = {}
+        agent_output_round = {}
+
+        # 准备所有任务的参数
+        tasks = []
         for i in range(self.num_agents):
             focal_agent = self.get_agent(i)
-
             add_info = ''
             prompt = self.prepare_prompt(agent=focal_agent, player_type=player_type, additional_info=add_info)
-            # focal_agent_response = self._call_llm(focal_agent=focal_agent, prompt=investor_prompt, player_type="Investor")
-            # 使用轻量级的正则表达式提取，（无需额外API调用）
-            invest_value = {}
-            for id in focal_agent.neighbor_ids:
-                invest_value[id] = random.randint(0, 5)
-            focal_agent_response = f"作为 Emily，一名习惯用逻辑和算法思考的软件工程师，我开始分析这一轮的游戏策略。这是一个对称的信任博弈，处于多轮实验的初期阶段。虽然第一轮没有历史数据可以参考，但在重复博弈的背景下，建立互惠的合作规范对于最大化长期总收益至关重要。\n从数学期望来看，如果我不发送任何代币（x=0），虽然能确保不亏损，但也无法获得信托投资带来的潜在增值回报，这会破坏合作的可能性。反之，如果发送全部 5 个代币，风险过高。考虑到我是一个追求卓越的分析师，我会选择一个既能有效传递信任信号，又能保留一定安全边际的数量。发送 4 个代币意味着我将大部分资源投入到合作伙伴手中，这向邻居展示了强烈的合作意愿，同时也留下了一个代币作为风险缓冲。鉴于目前所有邻居的情况相同，且我是自由玩家，可以对每个邻居独立决策，但为了确立一致的社交规范，我对这两个邻居将采取相同的策略。\nFinally, I decide to send {invest_value} to each neighbor."
-            send_amounts = self.extract_decisions_regex(focal_agent_response)
+            tasks.append({
+                'index': i,
+                'agent': focal_agent,
+                'prompt': prompt,
+                'player_type': player_type
+            })
+
+        # 使用线程池并行执行所有任务
+        max_workers = min(self.num_agents, 10)  # 限制最大并发数为10，避免API限流
+        results = {}
+
+        with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix=f"{player_type}_worker") as executor:
+            # 提交所有任务
+            future_to_index = {
+                executor.submit(self._call_llm, task['agent'], task['prompt'], task['player_type']): task['index']
+                for task in tasks
+            }
+
+            # 收集结果
+            for future in as_completed(future_to_index):
+                index = future_to_index[future]
+                try:
+                    focal_agent_response = future.result(timeout=60)  # 60秒超时
+                    results[index] = focal_agent_response
+                except Exception as e:
+                    logger.error(f"❌ Agent {tasks[index]['agent'].unique_id} 调用失败: {str(e)}")
+                    # 失败时使用默认值
+                    results[index] = None
+
+        # 按顺序处理结果
+        for i in range(self.num_agents):
+            focal_agent = self.get_agent(i)
+            focal_agent_response = results.get(i)
+
+            if focal_agent_response is None:
+                logger.warning(f"⚠️ Agent {focal_agent.unique_id} 响应为空，使用默认决策")
+                send_amounts = {}
+                for neighbor_id in focal_agent.neighbor_ids:
+                    send_amounts[neighbor_id] = 0
+            else:
+                send_amounts = self.extract_decisions_regex(focal_agent_response.content if hasattr(focal_agent_response, 'content') else str(focal_agent_response))
 
             if player_type == "investor":
                 focal_agent.I_invested_1.append(send_amounts)
-                self.agents_invested_amounts[focal_agent.unique_id] = invest_value
+                self.agents_invested_amounts[focal_agent.unique_id] = send_amounts
             elif player_type == "trustee":
                 focal_agent.T_returned_3.append(send_amounts)
-                self.agents_returned_amounts[focal_agent.unique_id] = invest_value
+                self.agents_returned_amounts[focal_agent.unique_id] = send_amounts
+
             # 记录投资者输入提示词和输出回复
-            agent_input[f"agent_{focal_agent.unique_id}"] = prompt
-            agent_output[f"agent_{focal_agent.unique_id}"] = focal_agent_response
+            agent_input_round[f"agent_{focal_agent.unique_id}"] = tasks[i]['prompt']
+            agent_output_round[f"agent_{focal_agent.unique_id}"] = str(focal_agent_response) if focal_agent_response else "ERROR"
 
         if player_type == "investor":
-            self.round_input_record["as_investor"] = agent_input
-            self.round_output_record["as_investor"] = agent_output
+            self.input_record[f"round_{self.step}"]["as_investor"] = agent_input_round
+            self.output_record[f"round_{self.step}"]["as_investor"] = agent_output_round
         elif player_type == "trustee":
-            self.round_input_record["as_trustee"] = agent_input
-            self.round_output_record["as_trustee"] = agent_output
+            self.input_record[f"round_{self.step}"]["as_trustee"] = agent_input_round
+            self.output_record[f"round_{self.step}"]["as_trustee"] = agent_output_round
 
-        logger.info(f"✅ 第 {self.step} 轮-{player_type} 阶段完成\n")
+        logger.info(f"✅ 实验共{self.params.rounds}轮，第 {self.step} 轮-{player_type} 阶段完成！\n")
 
     def prepare_prompt(self, agent, player_type, additional_info="") -> str:
 
@@ -282,13 +318,18 @@ class GameModel(mesa.Model):
     def _call_llm(self, focal_agent, prompt, player_type="Investor"):
         import time
         start_time = time.time()
-        focal_agent_response = focal_agent.llm_agent.step(prompt).msgs[0]
-        elapsed_time = time.time() - start_time
+        try:
+            focal_agent_response = focal_agent.llm_agent.step(prompt).msgs[0]
+            elapsed_time = time.time() - start_time
 
-        logger.info(f"✅ [{player_type}] Agent {focal_agent.unique_id} 投资决策完成 - API耗时: {elapsed_time:.2f}秒")
-        logger.info(f"  响应: {focal_agent_response.content[:100]}...")
+            logger.info(f"✅ [{player_type}] Agent {focal_agent.unique_id} 投资决策完成 - API耗时: {elapsed_time:.2f}秒")
+            logger.debug(f"  响应: {str(focal_agent_response)[:100]}...")
 
-        return focal_agent_response
+            return focal_agent_response
+        except Exception as e:
+            elapsed_time = time.time() - start_time
+            logger.error(f"❌ [{player_type}] Agent {focal_agent.unique_id} 调用失败 - 耗时: {elapsed_time:.2f}秒 - 错误: {str(e)}")
+            raise
 
     def record_agent_investment(self):
         for i in range(self.num_agents):
@@ -328,7 +369,7 @@ class GameModel(mesa.Model):
 
             focal_agent.I_received_4.append(returned_from_neighbors)
 
-            logger.info(f"Agent {i} 收到邻居返还: {returned_from_neighbors}")
+            logger.debug(f"Agent {i} 收到邻居返还: {returned_from_neighbors}")
 
     def extract_decisions_regex(self, answer):
         pattern = r"Finally,\s*I\s+decide\s+to\s+send\s*\[([^\]]+)\]"
@@ -366,42 +407,76 @@ class GameModel(mesa.Model):
 
         return result
 
-    def save_records(self, data=None):
-        """保存记录到JSON文件"""
-        results_dir = os.path.join(CommonUtils.get_project_root_path(), "outputs", "qwen3.5-flash_trust_game")
-        os.makedirs(results_dir, exist_ok=True)
-        record_file = os.path.join(results_dir, f"QA-record_p-{self.proportion}.json")
-
-        if self.step == 0:
-            record_data = {
-                "initial_sys_prompt": data,
-                "input_record": {},
-                "output_record": {}
-            }
-            with open(record_file, "w", encoding="utf-8") as f:
-                json.dump(record_data, f, ensure_ascii=False, indent=2)
-            logger.info(f"✅ 初始化记录文件: {record_file}")
-        else:
-            with open(record_file, "r", encoding="utf-8") as f:
-                record_data = json.load(f)
-
-            record_data["input_record"][f"round_{self.step}"] = self.round_input_record
-            record_data["output_record"][f"round_{self.step}"] = self.round_output_record
-
-            with open(record_file, "w", encoding="utf-8") as f:
-                json.dump(record_data, f, ensure_ascii=False, indent=2)
-
-            logger.debug(f"✅ 第 {self.step} 轮记录已保存到文件")
-
-    def run_model(self, max_round=50)-> list:
+    def run_model(self, max_round=50) -> tuple[list, dict]:
         """运行模型指定步数"""
+        import time
         import tqdm
+
+        logger.info(f"\n{'=' * 70}")
+        logger.info(f"🚀 开始运行信任博弈实验")
+        logger.info(f"{'=' * 70}")
+        logger.info(f"  • 模型类型: {self.model_type}")
+        logger.info(f"  • 博弈类型: {self.game_type}")
+        logger.info(f"  • 智能体数量: {self.num_agents}")
+        logger.info(f"  • 网格大小: {self.width} x {self.height}")
+        logger.info(f"  • 自由玩家比例: {self.proportion}")
+        logger.info(f"  • 运行轮次: {max_round}")
+        logger.info(f"  • Run ID: {self.run_id}")
+        logger.info(f"  • Iteration: {self.iteration}")
+        logger.info(f"{'=' * 70}\n")
+
+        start_time = time.time()
+
         for _ in tqdm.trange(max_round):
             self._step()
 
-        self.print_final_stats()
-        return self.all_data
+        elapsed_time = time.time() - start_time
 
+        # 计算统计信息
+        total_interactions = len(self.all_data)
+        avg_invested = sum(row['invested_amount'] for row in self.all_data) / total_interactions if total_interactions > 0 else 0
+        avg_returned = sum(row['returned_amount'] for row in self.all_data) / total_interactions if total_interactions > 0 else 0
+        avg_investor_payoff = sum(row['investor_agent_payoff'] for row in self.all_data) / total_interactions if total_interactions > 0 else 0
+        avg_trustee_payoff = sum(row['trustee_agent_payoff'] for row in self.all_data) / total_interactions if total_interactions > 0 else 0
+
+        # 按智能体类型统计
+        free_agents_data = [row for row in self.all_data if row['investor_agent_type'] == 'free']
+        constrained_agents_data = [row for row in self.all_data if row['investor_agent_type'] == 'constrained']
+
+        avg_invested_free = sum(row['invested_amount'] for row in free_agents_data) / len(free_agents_data) if free_agents_data else 0
+        avg_invested_constrained = sum(row['invested_amount'] for row in constrained_agents_data) / len(constrained_agents_data) if constrained_agents_data else 0
+
+        all_dialogue = {"initial_sys_prompt": self.initial_sys_prompt,
+                        "input_record": self.input_record,
+                        "output_record": self.output_record,
+                        "agent_invested_amounts": self.agents_invested_amounts,
+                        "agent_returned_amounts": self.agents_returned_amounts, }
+
+        # 打印最终统计
+        logger.info(f"\n{'=' * 70}")
+        logger.info(f"🎉 实验运行完成！")
+        logger.info(f"{'=' * 70}")
+        logger.info(f"📊 核心指标统计:")
+        logger.info(f"  • 总交互次数: {total_interactions}")
+        logger.info(f"  • 平均委托金额: {avg_invested:.3f} / 5.0")
+        logger.info(f"  • 平均返还金额: {avg_returned:.3f}")
+        logger.info(f"  • 投资者平均收益: {avg_investor_payoff:.3f}")
+        logger.info(f"  • 受托者平均收益: {avg_trustee_payoff:.3f}")
+        logger.info(f"  • 总体平均收益: {(avg_investor_payoff + avg_trustee_payoff):.3f}")
+        logger.info(f"\n👥 分类型统计:")
+        logger.info(f"  • 自由玩家平均委托: {avg_invested_free:.3f}")
+        logger.info(f"  • 受限玩家平均委托: {avg_invested_constrained:.3f}")
+        logger.info(f"  • 差异: {abs(avg_invested_free - avg_invested_constrained):.3f}")
+        logger.info(f"\n⏱️ 性能统计:")
+        logger.info(f"  • 总耗时: {elapsed_time:.2f}秒")
+        logger.info(f"  • 平均每轮耗时: {elapsed_time / max_round:.2f}秒")
+        logger.info(f"  • 平均每交互耗时: {elapsed_time / total_interactions * 1000:.2f}毫秒")
+        logger.info(f"\n💾 数据记录:")
+        logger.info(f"  • 对话轮次记录: {len(self.input_record)} 轮")
+        logger.info(f"  • 数据行数: {len(self.all_data)}")
+        logger.info(f"{'=' * 70}\n")
+
+        return self.all_data, all_dialogue
 
     def get_agent(self, agent_id):
         """根据ID获取智能体"""
@@ -442,19 +517,4 @@ class GameModel(mesa.Model):
                 self.all_data.append(row)
     def reset_record(self):
         """重置记录"""
-        self.round_input_record = {}
-        self.round_output_record = {}
-        self.agents_invested_amounts = {}
-        self.agents_returned_amounts = {}
-
-    def print_final_stats(self):
-        """打印最终统计信息"""
-        """打印最终统计信息"""
-        print(f"\n{'=' * 70}")
-        print(f"🎉 模型运行完成！")
-        print(f"{'=' * 70}")
-        print(f"  • 总轮数: {self.step}")
-        print(f"  • 网格大小: {self.width} x {self.height}")
-        print(f"  • 智能体总数: {self.num_agents}")
-        print(f"  • 记录文件: results/record_model_test.json")
-        print(f"{'=' * 70}\n")
+        pass
