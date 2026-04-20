@@ -13,7 +13,6 @@ from camel.messages import BaseMessage
 from camel.types.enums import RoleType
 
 import mesa
-from discord.ext.commands import param
 from mesa.discrete_space import OrthogonalVonNeumannGrid
 from agents import BaseAgent
 from params import Params, GameScenario
@@ -31,21 +30,23 @@ if not logger.handlers:
     console_handler.setFormatter(formatter)
     logger.addHandler(console_handler)
 
-with open(os.path.join(CommonUtils.get_project_root_path(), "src/prompts/all_prompts.json"), "r", encoding="utf-8") as f:
-    all_prompts = json.load(f)
+with open(os.path.join(CommonUtils.get_project_root_path(), "src/prompts/exp_prompts.json"), "r", encoding="utf-8") as f:
+    exp_prompts = json.load(f)
 
-p_characters = all_prompts.get("Character", [])
-p_like_people = all_prompts.get("Like-people", "")
-p_experiment_info = all_prompts.get("Experiment info", "")
-p_game_rules = all_prompts.get("Game rule", "")
-p_position_template = all_prompts.get("Position", "")
-p_player_restrictions = all_prompts.get("Player restrictions", "")
-p_ensure = all_prompts.get("Ensure", "")
-p_decision = all_prompts.get("Decision", "")
-p_memory = all_prompts.get("Memory", "")
-p_decision_stages = all_prompts.get("Decision stages", "")
-p_output_requirements = all_prompts.get("Output requirements", "")
-p_system_prompt = p_like_people + p_experiment_info + p_game_rules.get("trust game")
+p_characters = exp_prompts.get("Character", [])
+p_characters_student = exp_prompts.get("Character_student", [])
+p_like_people = exp_prompts.get("Like-people", "")
+p_experiment_info = exp_prompts.get("Experiment_context", "")  # format id, position, neighbors
+p_game_rules = exp_prompts.get("Game_rule", "")
+p_behavioral_objective = exp_prompts.get("Behavioral_objective", "")
+p_output_requirements = exp_prompts.get("Output requirements", "")  # neighbors
+p_consistency = exp_prompts.get("Consistency", "")
+
+p_decision_stages = exp_prompts.get("Decision stages", "")  # step, type
+p_end = exp_prompts.get("End", "")
+p_decision = exp_prompts.get("Decision", "")  # step, received_amounts
+p_memory = exp_prompts.get("Memory", "")  # I_invested_1,I_received_4,T_received_2,T_returned_3,payoff
+
 
 class GameModel(mesa.Model):
 
@@ -149,9 +150,9 @@ class GameModel(mesa.Model):
         restriction_set = []
         for i in range(self.num_agents):
             if i < num_free_players:
-                restriction_set.append(p_player_restrictions.get("Free player"))
+                restriction_set.append("free")
             else:
-                restriction_set.append(p_player_restrictions.get("Constrained player"))
+                restriction_set.append("constrained")
 
         # 随机打乱顺序以随机分配玩家类型
         random.shuffle(restriction_set)
@@ -160,11 +161,13 @@ class GameModel(mesa.Model):
             agent = self.get_agent(i)
             agent.unique_id = agent.unique_id - 1
 
+            # p_system_prompt = p_characters[i] + p_like_people + p_experiment_info + p_game_rules.get("trust_game") + p_behavioral_objective + p_output_requirements + p_consistency
             character = p_characters[i]
-            position = p_position_template.format(id=agent.unique_id, coordinate=agent.cell.coordinate, neighbors=agent.neighbor_ids)
-            content: str = character + p_system_prompt + position + restriction_set[i] + p_ensure
+            position = p_experiment_info.format(id=agent.unique_id, position=agent.cell.coordinate, neighbors=agent.neighbor_ids)
+            output_requirements = p_output_requirements.get("General").format(neighbors=agent.neighbor_ids) + p_output_requirements.get("Simple")
+            content: str = character + p_characters[i] + p_like_people + position + p_game_rules.get("trust_game") + p_behavioral_objective + output_requirements + p_consistency
 
-            agent.type_restriction = "free" if "free player" in restriction_set[i] else "constrained"
+            agent.type_restriction = restriction_set[i]
             # 设置ChatAgent
             agent.set_llm_agent(
                 ChatAgent(
@@ -269,9 +272,11 @@ class GameModel(mesa.Model):
                 send_amounts = self.extract_decisions_regex(focal_agent_response.content if hasattr(focal_agent_response, 'content') else str(focal_agent_response))
 
             if player_type == "investor":
+                logger.info(f"📝 investor agent_{focal_agent.unique_id} 的决策为: {send_amounts}")
                 focal_agent.I_invested_1.append(send_amounts)
                 self.agents_invested_amounts[focal_agent.unique_id] = send_amounts
             elif player_type == "trustee":
+                logger.info(f"📝 trustee agent_{focal_agent.unique_id} 的决策为: {send_amounts}")
                 focal_agent.T_returned_3.append(send_amounts)
                 self.agents_returned_amounts[focal_agent.unique_id] = send_amounts
 
@@ -291,27 +296,39 @@ class GameModel(mesa.Model):
     def prepare_prompt(self, agent, player_type, additional_info="") -> str:
 
         prompt = additional_info
-        output_r = p_output_requirements.get("Format")
         if self.step == 1:
             if player_type == "investor":
                 decision_stages = p_decision_stages.get("investor")
-                prompt = decision_stages + output_r
+                prompt = decision_stages + p_end
             elif player_type == "trustee":
                 received_amounts = agent.T_received_2[-1]
                 investor_decision = p_decision.format(step=self.step, received_amounts=received_amounts)
                 decision_stages = p_decision_stages.get("trustee")
-                prompt = investor_decision + decision_stages + output_r
+                prompt = investor_decision + decision_stages + p_end
 
         else:
             if player_type == "investor":
-                memory = p_memory.format(I_invested_1=agent.I_invested_1, I_received_4=agent.I_received_4, T_received_2=agent.T_received_2, T_returned_3=agent.T_returned_3, payoff=agent.payoff)
+                # memory = p_memory.format(I_invested_1=agent.I_invested_1, I_received_4=agent.I_received_4, T_received_2=agent.T_received_2, T_returned_3=agent.T_returned_3, payoff=agent.payoff)
+                # decision_stages = p_decision_stages.get("investor")
+                # prompt = memory + decision_stages + output_r
+
+                current_round_info = f"\n第{self.step}轮开始。\n"
+                last_invested = agent.I_invested_1[-1] if agent.I_invested_1 else {}
+                last_received = agent.I_received_4[-1] if agent.I_received_4 else {}
+
+                history_summary = f"上一轮（第{self.step - 1}轮）结果：\n"
+                history_summary += f"- 你作为投资者委托给邻居的金额: {last_invested}\n"
+                history_summary += f"- 你从邻居收到的返还金额: {last_received}\n"
+                history_summary += f"- 你当前的累计收益: {agent.payoff:.2f}\n"
+
                 decision_stages = p_decision_stages.get("investor")
-                prompt = memory + decision_stages + output_r
+                prompt = current_round_info + history_summary + decision_stages + p_end
+
             elif player_type == "trustee":
                 received_amounts = agent.T_received_2[-1]
                 investor_decision = p_decision.format(step=self.step, received_amounts=received_amounts)
                 decision_stages = p_decision_stages.get("trustee")
-                prompt = investor_decision + decision_stages + output_r
+                prompt = investor_decision + decision_stages + p_end
 
         return prompt
 
@@ -320,9 +337,9 @@ class GameModel(mesa.Model):
         start_time = time.time()
         try:
             focal_agent_response = focal_agent.llm_agent.step(prompt).msgs[0]
-            elapsed_time = time.time() - start_time
 
-            logger.info(f"✅ [{player_type}] Agent {focal_agent.unique_id} 投资决策完成 - API耗时: {elapsed_time:.2f}秒")
+            # elapsed_time = time.time() - start_time
+            # logger.info(f"✅ [{player_type}] Agent {focal_agent.unique_id} 投资决策完成 - API耗时: {elapsed_time:.2f}秒")
             logger.debug(f"  响应: {str(focal_agent_response)[:100]}...")
 
             return focal_agent_response
