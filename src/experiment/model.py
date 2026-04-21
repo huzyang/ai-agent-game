@@ -77,8 +77,7 @@ class GameModel(mesa.Model):
 
         # 初始化记录数据结构
         self.initial_sys_prompt = {}
-        self.input_record = {}
-        self.output_record = {}
+        self.dialogs = {}  # 存储每轮次对话数据
         self.all_data = []  # 存储所有轮次的数据行
 
         # 创建网格
@@ -192,8 +191,7 @@ class GameModel(mesa.Model):
         self.step += 1
         # 初始化当前轮次的记录字典
         round_key = f"round_{self.step}"
-        self.input_record[round_key] = {}
-        self.output_record[round_key] = {}
+        self.dialogs[round_key] = {}
 
         # 1. 依次扮演信托者
         self.role_stage(player_type="investor")
@@ -222,8 +220,9 @@ class GameModel(mesa.Model):
         logger.info(f"📊 实验共{self.params.rounds}轮，第 {self.step} 轮博弈 - {player_type} 阶段开始")
         logger.info(f"{'=' * 60}")
 
-        agent_input_round = {}
-        agent_output_round = {}
+        round_key = f"round_{self.step}"
+        if round_key not in self.dialogs:
+            self.dialogs[round_key] = {}
 
         # 准备所有任务的参数
         tasks = []
@@ -264,14 +263,22 @@ class GameModel(mesa.Model):
         for i in range(self.num_agents):
             focal_agent = self.get_agent(i)
             focal_agent_response = results.get(i)
+            agent_key = f"agent_{focal_agent.unique_id}_{focal_agent.type_restriction}"
+            if agent_key not in self.dialogs[round_key]:
+                self.dialogs[round_key][agent_key] = {}
 
             if focal_agent_response is None:
                 logger.warning(f"⚠️ Agent {focal_agent.unique_id} 响应为空，使用默认决策")
                 send_amounts = {}
                 for neighbor_id in focal_agent.neighbor_ids:
                     send_amounts[neighbor_id] = 0
+
+                content_str = "ERROR"
+                reasoning_str = "ERROR"
             else:
                 send_amounts = self.extract_decisions_regex(focal_agent_response.content if hasattr(focal_agent_response, 'content') else str(focal_agent_response))
+                content_str = str(focal_agent_response.content)
+                reasoning_str = str(focal_agent_response.reasoning_content) if hasattr(focal_agent_response, 'reasoning_content') else ""
 
             if player_type == "investor":
                 logger.info(f"📝 investor agent_{focal_agent.unique_id} 的决策为: {send_amounts}")
@@ -282,17 +289,11 @@ class GameModel(mesa.Model):
                 focal_agent.T_returned_3.append(send_amounts)
                 self.agents_returned_amounts[focal_agent.unique_id] = send_amounts
 
-            # 记录投资者输入提示词和输出回复
-            agent_input_round[f"agent_{focal_agent.unique_id}_{focal_agent.type_restriction}"] = tasks[i]['prompt']
-            agent_output_round[f"agent_{focal_agent.unique_id}_{focal_agent.type_restriction}"] = str(focal_agent_response.content) if focal_agent_response else "ERROR"
-            agent_output_round[f"agent_{focal_agent.unique_id}_{focal_agent.type_restriction}_reasoning_content"] = str(focal_agent_response.reasoning_content) if focal_agent_response else "ERROR"
-
-        if player_type == "investor":
-            self.input_record[f"round_{self.step}"]["as_investor"] = agent_input_round
-            self.output_record[f"round_{self.step}"]["as_investor"] = agent_output_round
-        elif player_type == "trustee":
-            self.input_record[f"round_{self.step}"]["as_trustee"] = agent_input_round
-            self.output_record[f"round_{self.step}"]["as_trustee"] = agent_output_round
+            self.dialogs[round_key][agent_key][f"as_{player_type}"] = {
+                "prompt": tasks[i]['prompt'],
+                "content": content_str,
+                "reasoning_content": reasoning_str
+            }
 
         logger.info(f"✅ 实验共{self.params.rounds}轮，第 {self.step} 轮-{player_type} 阶段完成！\n")
 
@@ -462,8 +463,7 @@ class GameModel(mesa.Model):
         avg_invested_constrained = sum(row['invested_amount'] for row in constrained_agents_data) / len(constrained_agents_data) if constrained_agents_data else 0
 
         all_dialogue = {"initial_sys_prompt": self.initial_sys_prompt,
-                        "input_record": self.input_record,
-                        "output_record": self.output_record,
+                        "dialogs": self.dialogs,
                         "agent_invested_amounts": self.agents_invested_amounts,
                         "agent_returned_amounts": self.agents_returned_amounts, }
 
@@ -487,7 +487,7 @@ class GameModel(mesa.Model):
         logger.info(f"  • 平均每轮耗时: {elapsed_time / max_round:.2f}秒")
         logger.info(f"  • 平均每交互耗时: {elapsed_time / total_interactions * 1000:.2f}毫秒")
         logger.info(f"\n💾 数据记录:")
-        logger.info(f"  • 对话轮次记录: {len(self.input_record)} 轮")
+        logger.info(f"  • 对话轮次记录: {len(self.dialogs)} 轮")
         logger.info(f"  • 数据行数: {len(self.all_data)}")
         logger.info(f"{'=' * 70}\n")
 
