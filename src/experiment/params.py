@@ -49,7 +49,7 @@ class GameScenario(Scenario):
     width: int = int(num_agents ** 0.5)  # 根号 N
     height: int = width
     torus: bool = True
-    model_type: str = ModelType.QWEN3_5_FLASH.value
+    model_type: str = ModelType.QWEN3_5_FLASH_2026_02_23.value
     game_type: str = GameType.TRUST.value
     proportion: float = 0.5  # 自由节点比例
 

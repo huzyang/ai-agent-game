@@ -339,7 +339,7 @@ class GameModel(mesa.Model):
 
             # elapsed_time = time.time() - start_time
             # logger.info(f"✅ [{player_type}] Agent {focal_agent.unique_id} 投资决策完成 - API耗时: {elapsed_time:.2f}秒")
-            logger.debug(f"  响应: {str(focal_agent_response)[:100]}...")
+            # logger.debug(f"  响应: {str(focal_agent_response)[:100]}...")
 
             return focal_agent_response
         except Exception as e:

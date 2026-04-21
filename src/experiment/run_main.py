@@ -220,13 +220,10 @@ def main():
     params = Params()
     setup_logging(params, timestamp)
 
-    print("=" * 60)
-    print("开始运行LLM智能体博弈实验...")
-    print("=" * 60)
     multi_round_exp(params=params, timestamp=timestamp)
 
     run_time = format_run_time(time.time() - start_time)
-    logger.info(f"所有LLM智能体博弈实验运行完成，共耗时: {run_time}")
+    logger.info(f"✅ 实验所有步骤运行完成，总共耗时: {run_time}")
 
 
 if __name__ == "__main__":
