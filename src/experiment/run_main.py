@@ -20,9 +20,10 @@ logger = logging.getLogger('experiment')
 logger.setLevel(logging.INFO)
 
 
-def setup_logging():
+def setup_logging(params: Params, timestamp: str):
     """设置日志输出到文件和控制台"""
-    log_file = os.path.join(f"run.log")
+    output_dir = os.path.join(CommonUtils.get_project_root_path(), "outputs")
+    log_file = os.path.join(output_dir, f"{timestamp}_run.log")
 
     if logger.handlers:
         logger.handlers.clear()
@@ -111,7 +112,7 @@ def analyze_experiment_results(model_type: str, game_type: str):
         logger.error(f"❌ 实验分析失败: {str(e)}", exc_info=True)
 
 
-def multi_round_exp(params: Params):
+def multi_round_exp(params: Params, timestamp: str):
     """
     执行多轮实验的主函数，针对给定的模型列表进行多轮测试
     参数:
@@ -176,7 +177,7 @@ def multi_round_exp(params: Params):
 
                     # 将每次运行的结果列表扩展到总结果中
                     all_results.extend(results)
-                    dialogue_file_name = f"run_id-{run_id}_QA-record_p-{proportion}_iter-{iteration}.json"
+                    dialogue_file_name = f"{timestamp}_run_id-{run_id}_QA-record_p-{proportion}_iter-{iteration}.json"
                     dialogue_file_path = os.path.join(output_dir, dialogue_file_name)
                     try:
                         with open(dialogue_file_path, 'w', encoding='utf-8') as f:
@@ -194,7 +195,6 @@ def multi_round_exp(params: Params):
                     })
                     run_id += 1
 
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = f"{timestamp}_{params.game_type}_p-{proportions}.csv"
             filepath = os.path.join(output_dir, filename)
 
@@ -214,15 +214,16 @@ def multi_round_exp(params: Params):
 
 
 def main():
-    setup_logging()
+    import time
+    start_time = time.time()
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     params = Params()
+    setup_logging(params, timestamp)
+
     print("=" * 60)
     print("开始运行LLM智能体博弈实验...")
     print("=" * 60)
-
-    import time
-    start_time = time.time()
-    multi_round_exp(params=params)
+    multi_round_exp(params=params, timestamp=timestamp)
 
     run_time = format_run_time(time.time() - start_time)
     logger.info(f"所有LLM智能体博弈实验运行完成，共耗时: {run_time}")

@@ -66,9 +66,9 @@
   "Behavioral_objective": "\n# Behavioral Objective\nThe experiment investigates how social networking agency (free vs. constrained) influences prosocial behavior. \n- Free player: The player may formulate independent token-sending decisions for each neighbor. Decisions may either be uniform or differ across neighbors, reflecting discretionary social networking agency.\n- Constrained Player: The player are required to select a single, uniform number of tokens to send to all neighbors. Only one unified value may be used, which shall be repeated for every neighbor in the specified output format.",
 
   "Output requirements": {
-    "General": "# Output Requirements (strict)\n1. For each round, output your send amounts (as investor and as trustee) to the four neighbors in the original order {neighbors}.\n2. Use integers only, within [0,5].\n3. End your answer with the exact sentence:  \n   `This round, I decide to send {Neighbor1 ID: integer, Neighbor2 ID: integer, ...} to each neighbor.`",
-    "BDI": "4. Your answer must explicitly include the content and analysis about your Belief, Desire, and Intention to explain your reasoning process.",
-    "Simple": "4. Do not add extra text before or after that sentence."
+    "General": "\n# Output Requirements (strict)\n1. For each round, output your send amounts (as investor and as trustee) to the four neighbors in the original order {neighbors}.\n2. Use integers only, within [0,5].\n3. End your answer with the exact sentence:  \n   `This round, I decide to send {Neighbor1 ID: integer, Neighbor2 ID: integer, ...} to each neighbor.`",
+    "BDI": "\n4. Your answer must explicitly include the content and analysis about your Belief, Desire, and Intention to explain your reasoning process.",
+    "Simple": "\n4. Do not add extra text before or after that sentence."
   },
   "Consistency": "\n# Consistency\nYou must remember the above rules, your identity, and the experimental setup across all rounds. Your decisions should not drift randomly; they should reflect a coherent personal strategy (e.g., reciprocity, altruism, or self-interest).",
 
@@ -77,7 +77,7 @@
     "trustee": "\nThen, acting as trustee, how many tokens will you decide to return to each neighbor? Returned amounts may be the same or different across neighbors."
   },
   "Decision": "\nThis is Round {step}, and the tokens you have received from your neighbors are as follows: {received_amounts}, where the actual amount you receive from each neighbor equals three times the number of tokens sent by that neighbor.",
-  "Memory": "\nIn the last round: \\n- As a investor: you sent {I_invested_1}; neighbors returned {I_received_4}. \\n- As a trustee: neighbors sent {T_received_2}; you returned {T_returned_3}. Your total payoff in the last round was {payoff}. A new round is going to begin.",
-  "End": "Please respond strictly in accordance with the output requirements."
+  "Memory": "\nIn last round: \n- As a investor: you sent {I_invested_1}; neighbors returned {I_received_4}. \n- As a trustee: neighbors sent {T_received_2}; you returned {T_returned_3}. Your total payoff in the last round was {payoff}. A new round is going to begin.",
+  "End": " Please respond strictly in accordance with the output requirements."
 }
 

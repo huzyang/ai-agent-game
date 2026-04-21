@@ -8,15 +8,20 @@ import os
 from mesa.experimental.scenarios import Scenario
 
 class ModelType(Enum):
-    GPT_4 = "gpt-4"
+    QWEN3_6_FLASH = "qwen3.6-flash"
+    QWEN3_5_FLASH_2026_02_23 = "qwen3.5-flash-2026-02-23"
     QWEN3_5_FLASH = "qwen3.5-flash"
     QWEN3_5_MAX = "qwen3.5-max"
+
+    DEEPSEEK_V3_2 = "deepseek-v3.2"
+    GLM_5_1 = "glm-5.1"
+    KIMI_K2_5 = "kimi-k2.5"
 
     @property
     def is_openai(self) -> bool:
         r"""Returns whether this type of models is an OpenAI-released model."""
         return self in {
-            ModelType.GPT_4,
+            ModelType.QWEN3_6_FLASH, ModelType.QWEN3_5_MAX,
         }
 
     @property
@@ -25,7 +30,7 @@ class ModelType(Enum):
         Returns:
             int: The maximum token limit for the given model.
         """
-        if self is ModelType.GPT_4:
+        if self is ModelType.QWEN3_6_FLASH:
             return 8192
         elif self is ModelType.QWEN3_5_FLASH:
             return 4096
@@ -59,9 +64,9 @@ class Params:
         self.width: int = int(self.num_agents ** 0.5)  # 根号 N
         self.height: int = self.width
         self.proportions = [1]  # 自由节点比例 0, 0.25, 0.5, 0.75,
-        self.model_type_list = [ModelType.QWEN3_5_FLASH.value]
+        self.model_type_list = [ModelType.QWEN3_6_FLASH.value]
         self.game_type = GameType.TRUST.value
-        self.rounds = 3  # 游戏轮数
+        self.rounds = 2  # 游戏轮数
         self.iterations = 1
 
         ################# LLM 参数 ####################

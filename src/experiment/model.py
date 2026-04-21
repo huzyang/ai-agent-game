@@ -34,6 +34,7 @@ with open(os.path.join(CommonUtils.get_project_root_path(), "src/prompts/exp_pro
     exp_prompts = json.load(f)
 
 p_characters = exp_prompts.get("Character", [])
+random.shuffle(p_characters)
 p_characters_student = exp_prompts.get("Character_student", [])
 p_like_people = exp_prompts.get("Like-people", "")
 p_experiment_info = exp_prompts.get("Experiment_context", "")  # format id, position, neighbors
@@ -161,11 +162,12 @@ class GameModel(mesa.Model):
             agent = self.get_agent(i)
             agent.unique_id = agent.unique_id - 1
 
-            # p_system_prompt = p_characters[i] + p_like_people + p_experiment_info + p_game_rules.get("trust_game") + p_behavioral_objective + p_output_requirements + p_consistency
+            # 系统提示词组成： p_characters[i] + p_like_people + p_experiment_info + p_game_rules.get("trust_game") + p_behavioral_objective + p_output_requirements + p_consistency
             character = p_characters[i]
+            # character = p_characters_student[0]  # 测试使用
             position = p_experiment_info.format(id=agent.unique_id, position=agent.cell.coordinate, neighbors=agent.neighbor_ids)
-            output_requirements = p_output_requirements.get("General").format(neighbors=agent.neighbor_ids) + p_output_requirements.get("Simple")
-            content: str = character + p_characters[i] + p_like_people + position + p_game_rules.get("trust_game") + p_behavioral_objective + output_requirements + p_consistency
+            output_requirements = p_output_requirements.get("General") + p_output_requirements.get("Simple")
+            content: str = character + p_like_people + position + p_game_rules.get("trust_game") + p_behavioral_objective + output_requirements + p_consistency
 
             agent.type_restriction = restriction_set[i]
             # 设置ChatAgent
@@ -183,7 +185,7 @@ class GameModel(mesa.Model):
             )
 
             # 记录人物特征与初始系统提示词 initial_sys_prompt
-            self.initial_sys_prompt[f"agent_{agent.unique_id}_position_{agent.cell.coordinate}"] = content
+            self.initial_sys_prompt[f"agent_{agent.unique_id}_{agent.type_restriction}_position-{agent.cell.coordinate}"] = content
 
     def _step(self):
         """模型每一步的执行"""
@@ -212,7 +214,7 @@ class GameModel(mesa.Model):
         self._collect_data()
 
         # 7. 收集数据
-        # self.datacollector.collect(self)
+        # self.agents.do("reset_record")
 
     def role_stage(self, player_type="investor"):
 
@@ -281,8 +283,9 @@ class GameModel(mesa.Model):
                 self.agents_returned_amounts[focal_agent.unique_id] = send_amounts
 
             # 记录投资者输入提示词和输出回复
-            agent_input_round[f"agent_{focal_agent.unique_id}"] = tasks[i]['prompt']
-            agent_output_round[f"agent_{focal_agent.unique_id}"] = str(focal_agent_response) if focal_agent_response else "ERROR"
+            agent_input_round[f"agent_{focal_agent.unique_id}_{focal_agent.type_restriction}"] = tasks[i]['prompt']
+            agent_output_round[f"agent_{focal_agent.unique_id}_{focal_agent.type_restriction}"] = str(focal_agent_response.content) if focal_agent_response else "ERROR"
+            agent_output_round[f"agent_{focal_agent.unique_id}_{focal_agent.type_restriction}_reasoning_content"] = str(focal_agent_response.reasoning_content) if focal_agent_response else "ERROR"
 
         if player_type == "investor":
             self.input_record[f"round_{self.step}"]["as_investor"] = agent_input_round
@@ -298,8 +301,9 @@ class GameModel(mesa.Model):
         prompt = additional_info
         if self.step == 1:
             if player_type == "investor":
-                decision_stages = p_decision_stages.get("investor")
+                decision_stages = p_decision_stages.get("investor").format(step=self.step, type=agent.type_restriction)
                 prompt = decision_stages + p_end
+
             elif player_type == "trustee":
                 received_amounts = agent.T_received_2[-1]
                 investor_decision = p_decision.format(step=self.step, received_amounts=received_amounts)
@@ -308,21 +312,9 @@ class GameModel(mesa.Model):
 
         else:
             if player_type == "investor":
-                # memory = p_memory.format(I_invested_1=agent.I_invested_1, I_received_4=agent.I_received_4, T_received_2=agent.T_received_2, T_returned_3=agent.T_returned_3, payoff=agent.payoff)
-                # decision_stages = p_decision_stages.get("investor")
-                # prompt = memory + decision_stages + output_r
-
-                current_round_info = f"\n第{self.step}轮开始。\n"
-                last_invested = agent.I_invested_1[-1] if agent.I_invested_1 else {}
-                last_received = agent.I_received_4[-1] if agent.I_received_4 else {}
-
-                history_summary = f"上一轮（第{self.step - 1}轮）结果：\n"
-                history_summary += f"- 你作为投资者委托给邻居的金额: {last_invested}\n"
-                history_summary += f"- 你从邻居收到的返还金额: {last_received}\n"
-                history_summary += f"- 你当前的累计收益: {agent.payoff:.2f}\n"
-
-                decision_stages = p_decision_stages.get("investor")
-                prompt = current_round_info + history_summary + decision_stages + p_end
+                memory = p_memory.format(I_invested_1=agent.I_invested_1[-1], I_received_4=agent.I_received_4[-1], T_received_2=agent.T_received_2[-1], T_returned_3=agent.T_returned_3[-1], payoff=agent.payoff)
+                decision_stages = p_decision_stages.get("investor").format(step=self.step, type=agent.type_restriction)
+                prompt = memory + decision_stages + p_end
 
             elif player_type == "trustee":
                 received_amounts = agent.T_received_2[-1]
@@ -337,6 +329,12 @@ class GameModel(mesa.Model):
         start_time = time.time()
         try:
             focal_agent_response = focal_agent.llm_agent.step(prompt).msgs[0]
+
+            # Debug
+            # invest_value = {}
+            # for id in focal_agent.neighbor_ids:
+            #     invest_value[id] = random.randint(1, 5)
+            # focal_agent_response = f"\nThis round, I decide to send {invest_value} to each neighbor."
 
             # elapsed_time = time.time() - start_time
             # logger.info(f"✅ [{player_type}] Agent {focal_agent.unique_id} 投资决策完成 - API耗时: {elapsed_time:.2f}秒")
@@ -389,7 +387,7 @@ class GameModel(mesa.Model):
             logger.debug(f"Agent {i} 收到邻居返还: {returned_from_neighbors}")
 
     def extract_decisions_regex(self, answer):
-        pattern = r"Finally,\s*I\s+decide\s+to\s+send\s*\[([^\]]+)\]"
+        pattern = r"This round,\s*I\s+decide\s+to\s+send\s*\[([^\]]+)\]"
         match = re.search(pattern, answer, re.IGNORECASE)
 
         if not match:

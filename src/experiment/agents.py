@@ -76,16 +76,14 @@ class BaseAgent(CellAgent):
 
     def step(self):
         pass
-    def decide(self):
+    def reset_record(self):
         """
         根据游戏类型和上下文做出决策。
         """
-        # 1、构建提示词
-
-        # 2、调用LLM获取决策
-
-        # 3、解析决策
-        pass
+        self.I_invested_1 = []
+        self.T_received_2 = []
+        self.T_returned_3 = []
+        self.I_received_4 = []
 
 
     def _call_llm(self, system_prompt: str, user_prompt: str) -> str:
