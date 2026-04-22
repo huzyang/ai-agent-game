@@ -395,32 +395,50 @@ class GameModel(mesa.Model):
             logger.debug(f"Agent {i} 收到邻居返还: {returned_from_neighbors}")
 
     def extract_decisions_regex(self, answer):
-        pattern = r"This round,\s*I\s+decide\s+to\s+send\s*(?:\[([^\]]+)\]|\{([^}]+)\})"
-        match = re.search(pattern, answer, re.IGNORECASE | re.DOTALL)
+        # 清空两边空白、统一格式
+        answer = answer.strip().strip('"').strip()
 
-        if not match:
-            logger.warning(f"未找到标准格式，尝试备用提取方式。原始响应: {answer[:100]}")
-            return self._extract_fallback(answer)
+        # 1. 优先匹配：直接包含 {key: value} 字典格式（格式1、2）
+        dict_pattern = r"\{([^}]+)\}"
+        dict_match = re.search(dict_pattern, answer)
 
-        content = match.group(1) if match.group(1) else match.group(2)
+        if dict_match:
+            content = dict_match.group(1)
+            pairs = re.findall(r"(\d+)\s*:\s*(\d+)", content)
+            if pairs:
+                result = {int(k): min(int(v), 5) for k, v in pairs}
+                logger.debug(f"提取发送金额决策: {result}")
+                return result
 
-        pairs = re.findall(r"(\d+)\s*:\s*(\d+)", content)
+        # 2. 匹配：统一发送固定金额给所有邻居（格式3）
+        single_pattern = r"send\s*(\d+)(?:\s*tokens?)?\s*to\s*each\s*neighbor"
+        single_match = re.search(single_pattern, answer, re.IGNORECASE)
 
-        if not pairs:
-            logger.warning(f"找到格式但未解析到键值对: {content}")
-            return {}
+        if single_match:
+            amount = min(int(single_match.group(1)), 5)
+            # 固定邻居列表：2、5、8、11
+            result = {2: amount, 5: amount, 8: amount, 11: amount}
+            logger.debug(f"提取统一发送金额决策: {result}")
+            return result
 
-        result = {}
-        for neighbor_id, amount in pairs:
-            result[int(neighbor_id)] = min(int(amount), 5)
+        # 3. 匹配：分别发送给不同邻居（格式4）
+        multi_pattern = r"(\d+)\s*tokens?\s*to\s*neighbor\s*(\d+)"
+        multi_matches = re.findall(multi_pattern, answer, re.IGNORECASE)
 
-        logger.debug(f"提取发送金额决策决策: {result}")
-        return result
+        if multi_matches:
+            result = {}
+            for amount, neighbor_id in multi_matches:
+                result[int(neighbor_id)] = min(int(amount), 5)
+            logger.debug(f"提取分开发送金额决策: {result}")
+            return result
+
+        # 所有格式都不匹配
+        logger.warning(f"未匹配到任何发送金额格式，原始响应: {answer[:100]}")
+        return self._extract_fallback(answer)
 
     def _extract_fallback(self, answer):
         pairs = re.findall(r"(\d+)\s*:\s*(\d+)", answer)
         if not pairs:
-            logger.error(f"无法从响应中提取任何决策: {answer[:200]}")
             return {}
 
         result = {}
