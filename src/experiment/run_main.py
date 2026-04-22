@@ -148,7 +148,7 @@ def multi_round_exp(params: Params, timestamp: str):
             logger.info(f"{'=' * 80}")
 
             # 创建输出目录
-            output_dir = os.path.join(CommonUtils.get_project_root_path(), "outputs", f"{model_type}_{params.game_type}")
+            output_dir = os.path.join(CommonUtils.get_project_root_path(), "outputs", f"{timestamp}_{model_type}_{params.game_type}")
             os.makedirs(output_dir, exist_ok=True)
 
             all_results = []

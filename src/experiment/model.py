@@ -179,7 +179,7 @@ class GameModel(mesa.Model):
                         content=content
                     ),
                     model=self.llm_model,
-                    output_language="Chinese",
+                    output_language="English",
                 )
             )
 
@@ -388,14 +388,15 @@ class GameModel(mesa.Model):
             logger.debug(f"Agent {i} 收到邻居返还: {returned_from_neighbors}")
 
     def extract_decisions_regex(self, answer):
-        pattern = r"This round,\s*I\s+decide\s+to\s+send\s*\[([^\]]+)\]"
-        match = re.search(pattern, answer, re.IGNORECASE)
+        pattern = r"This round,\s*I\s+decide\s+to\s+send\s*(?:\[([^\]]+)\]|\{([^}]+)\})"
+        match = re.search(pattern, answer, re.IGNORECASE | re.DOTALL)
 
         if not match:
             logger.warning(f"未找到标准格式，尝试备用提取方式。原始响应: {answer[:100]}")
             return self._extract_fallback(answer)
 
-        content = match.group(1)
+        content = match.group(1) if match.group(1) else match.group(2)
+
         pairs = re.findall(r"(\d+)\s*:\s*(\d+)", content)
 
         if not pairs:
@@ -406,7 +407,7 @@ class GameModel(mesa.Model):
         for neighbor_id, amount in pairs:
             result[int(neighbor_id)] = min(int(amount), 5)
 
-        logger.debug(f"提取投资决策: {result}")
+        logger.debug(f"提取发送金额决策决策: {result}")
         return result
 
     def _extract_fallback(self, answer):

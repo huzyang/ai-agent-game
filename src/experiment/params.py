@@ -49,7 +49,7 @@ class GameScenario(Scenario):
     width: int = int(num_agents ** 0.5)  # 根号 N
     height: int = width
     torus: bool = True
-    model_type: str = ModelType.QWEN3_5_FLASH_2026_02_23.value
+    model_type: str = ModelType.QWEN3_5_FLASH.value
     game_type: str = GameType.TRUST.value
     proportion: float = 0.5  # 自由节点比例
 
@@ -63,7 +63,7 @@ class Params:
         self.num_agents = 9
         self.width: int = int(self.num_agents ** 0.5)  # 根号 N
         self.height: int = self.width
-        self.proportions = [1]  # 自由节点比例 0, 0.25, 0.5, 0.75,
+        self.proportions = [0.5]  # 自由节点比例 0, 0.25, 0.5, 0.75, 1
         self.model_type_list = [ModelType.QWEN3_6_FLASH.value]
         self.game_type = GameType.TRUST.value
         self.rounds = 2  # 游戏轮数
