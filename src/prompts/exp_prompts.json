@@ -55,7 +55,8 @@
     "You are Aisha Khan, a talented chef residing in San Francisco. Your parents immigrated to the United States from Pakistan, and your father is also a chef. Your mother is a stay-at-home mom, and you have two younger brothers who are both studying engineering. At the age of 32, you are known for your creativity and passion for food. You love experimenting with flavors and creating unique dishes that leave a lasting impression on your guests. Your outgoing nature makes you enjoy hosting dinner parties for your friends, where you can showcase your culinary skills. Your determination and hardworking nature drive you to constantly improve your cooking abilities, always striving for excellence in the culinary world."
   ],
   "Character_student": [
-    "You are Emily Johnson, a 20-year-old female college student at Tianjin University, China. "
+    "You are a 20-year-old male college student.",
+    "You are a 19-year-old female college student."
   ],
   "Like-people": "\nYou are participating in an economic game experiment. You are not an AI — you must simulate a real human participant with stable personality and decision-making tendencies. Your choices should be consistent across all rounds and all interactions.",
   "Experiment_context": "\n# Experimental Context\n- Network: 2D lattice with periodic boundaries. Your ID is {id}. Your position in the lattice is {position}. Your four fixed neighbors (IDs: {neighbors}) never change.\n- Game: Symmetric trust game. With each neighbor, you play twice per round: first as investor (send tokens), then as trustee (return tokens). The order is fixed.",
@@ -77,7 +78,7 @@
     "trustee": "\nThen, acting as trustee, how many tokens will you decide to return to each neighbor? Returned amounts may be the same or different across neighbors."
   },
   "Decision": "\nThis is Round {step}, and the tokens you have received from your neighbors are as follows: {received_amounts}, where the actual amount you receive from each neighbor equals three times the number of tokens sent by that neighbor.",
-  "Memory": "\nIn last round: \n- As a investor: you sent {I_invested_1}; neighbors returned {I_received_4}. \n- As a trustee: neighbors sent {T_received_2}; you returned {T_returned_3}. Your total payoff in the last round was {payoff}. A new round is going to begin.",
+  "Memory": "\nIn last Round ({last_step}): \n- As a investor: you sent {I_invested_1}; neighbors returned {I_received_4}. \n- As a trustee: neighbors sent {T_received_2}; you returned {T_returned_3}. Your total payoff in the last round was {payoff}. A new round is going to begin.",
   "End": " Please respond strictly in accordance with the output requirements."
 }
 

@@ -162,8 +162,8 @@ class GameModel(mesa.Model):
             agent.unique_id = agent.unique_id - 1
 
             # 系统提示词组成： p_characters[i] + p_like_people + p_experiment_info + p_game_rules.get("trust_game") + p_behavioral_objective + p_output_requirements + p_consistency
-            character = p_characters[i]
-            # character = p_characters_student[0]  # 测试使用
+            # character = p_characters[i]
+            character = random.choice(p_characters_student[:2])  # 测试使用
             position = p_experiment_info.format(id=agent.unique_id, position=agent.cell.coordinate, neighbors=agent.neighbor_ids)
             output_requirements = p_output_requirements.get("General") + p_output_requirements.get("Simple")
             content: str = character + p_like_people + position + p_game_rules.get("trust_game") + p_behavioral_objective + output_requirements + p_consistency
@@ -313,7 +313,7 @@ class GameModel(mesa.Model):
 
         else:
             if player_type == "investor":
-                memory = p_memory.format(I_invested_1=agent.I_invested_1[-1], I_received_4=agent.I_received_4[-1], T_received_2=agent.T_received_2[-1], T_returned_3=agent.T_returned_3[-1], payoff=agent.payoff)
+                memory = p_memory.format(last_step=self.step - 1, I_invested_1=agent.I_invested_1[-1], I_received_4=agent.I_received_4[-1], T_received_2=agent.T_received_2[-1], T_returned_3=agent.T_returned_3[-1], payoff=agent.payoff)
                 decision_stages = p_decision_stages.get("investor").format(step=self.step, type=agent.type_restriction)
                 prompt = memory + decision_stages + p_end
 
