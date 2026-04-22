@@ -66,15 +66,10 @@ def format_run_time(seconds):
         return f"{seconds:.2f}秒"
 
 
-def analyze_experiment_results(model_type: str, game_type: str):
+def analyze_experiment_results(output_dir: str):
     """
     分析实验结果并生成报告和图表
-
-    Args:
-        model_type: 模型类型
-        game_type: 博弈类型
     """
-    output_dir = os.path.join(CommonUtils.get_project_root_path(), "outputs", f"{model_type}_{game_type}")
 
     # 查找所有CSV文件
     pattern = os.path.join(output_dir, "*.csv")
@@ -210,7 +205,7 @@ def multi_round_exp(params: Params, timestamp: str):
             logger.info(f"{'=' * 80}\n")
 
             # 对当前模型的实验结果进行分析
-            analyze_experiment_results(model_type, params.game_type)
+            analyze_experiment_results(output_dir)
 
 
 def main():
