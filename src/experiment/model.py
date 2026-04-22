@@ -90,7 +90,13 @@ class GameModel(mesa.Model):
             model_type=self.model_type,
             url=self.params.api_base_url,
             api_key=self.params.api_key,
-            model_config_dict={"temperature": self.params.temperature},
+            model_config_dict={
+                "temperature": self.params.temperature,
+                "max_tokens": self.params.max_tokens,
+                # "extra_body": {
+                #     "enable_thinking": False  # 关闭思维链
+                # }
+            },
         )
 
         # 创建智能体、给智能体设置ChatAgent（1、人物 2、根据不同的博弈类型设置初始提示词（不是第一轮））
@@ -164,7 +170,7 @@ class GameModel(mesa.Model):
             # 系统提示词组成： p_characters[i] + p_like_people + p_experiment_info + p_game_rules.get("trust_game") + p_behavioral_objective + p_output_requirements + p_consistency
             # character = p_characters[i]
             character = random.choice(p_characters_student[:2])  # 测试使用
-            position = p_experiment_info.format(id=agent.unique_id, position=agent.cell.coordinate, neighbors=agent.neighbor_ids)
+            position = p_experiment_info.format(id=agent.unique_id, neighbors=agent.neighbor_ids)
             output_requirements = p_output_requirements.get("General") + p_output_requirements.get("Simple")
             content: str = character + p_like_people + position + p_game_rules.get("trust_game") + p_behavioral_objective + output_requirements + p_consistency
 
@@ -313,7 +319,8 @@ class GameModel(mesa.Model):
 
         else:
             if player_type == "investor":
-                memory = p_memory.format(last_step=self.step - 1, I_invested_1=agent.I_invested_1[-1], I_received_4=agent.I_received_4[-1], T_received_2=agent.T_received_2[-1], T_returned_3=agent.T_returned_3[-1], payoff=agent.payoff)
+                memory = p_memory.format(last_step=self.step - 1, I_invested_1=agent.I_invested_1[-1], I_received_4=agent.I_received_4[-1], T_received_2=agent.T_received_2[-1],
+                                         T_returned_3=agent.T_returned_3[-1])
                 decision_stages = p_decision_stages.get("investor").format(step=self.step, type=agent.type_restriction)
                 prompt = memory + decision_stages + p_end
 

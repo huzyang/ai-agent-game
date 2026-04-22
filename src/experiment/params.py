@@ -12,6 +12,7 @@ class ModelType(Enum):
     QWEN3_5_FLASH_2026_02_23 = "qwen3.5-flash-2026-02-23"
     QWEN3_5_FLASH = "qwen3.5-flash"
     QWEN3_5_MAX = "qwen3.5-max"
+    QWEN_FLASH = "qwen-flash"
 
     DEEPSEEK_V3_2 = "deepseek-v3.2"
     GLM_5_1 = "glm-5.1"
@@ -49,7 +50,7 @@ class GameScenario(Scenario):
     width: int = int(num_agents ** 0.5)  # 根号 N
     height: int = width
     torus: bool = True
-    model_type: str = ModelType.QWEN3_5_FLASH.value
+    model_type: str = ModelType.QWEN_FLASH.value
     game_type: str = GameType.TRUST.value
     proportion: float = 0.5  # 自由节点比例
 
@@ -60,13 +61,13 @@ class GameScenario(Scenario):
 class Params:
 
     def __init__(self):
-        self.num_agents = 9
+        self.num_agents = 16
         self.width: int = int(self.num_agents ** 0.5)  # 根号 N
         self.height: int = self.width
-        self.proportions = [0.5]  # 自由节点比例 0, 0.25, 0.5, 0.75, 1
-        self.model_type_list = [ModelType.QWEN3_6_FLASH.value]
+        self.proportions = [0.25, 0.5, 0.75, 1]  # 自由节点比例 0, 0.25, 0.5, 0.75, 1
+        self.model_type_list = [ModelType.QWEN_FLASH.value]
         self.game_type = GameType.TRUST.value
-        self.rounds = 2  # 游戏轮数
+        self.rounds = 20  # 游戏轮数
         self.iterations = 1
 
         ################# LLM 参数 ####################
@@ -75,8 +76,8 @@ class Params:
         if not self.api_key:
             raise ValueError("请设置环境变量 QWEN_API_KEY")
         self.api_base_url = os.getenv("QWEN_API_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
-        self.temperature = 0.5
-        self.max_tokens = 4096
+        self.temperature = 0.7
+        self.max_tokens = 100
 
     @property
     def model_init_params(self):
