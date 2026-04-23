@@ -76,7 +76,7 @@ class TrustGameAnalyzer:
             self.df[col] = pd.to_numeric(self.df[col], errors='coerce').fillna(0)
 
         # 添加辅助列：每笔交互的总收益（投资者+受托者）
-        self.df['interaction_total_payoff'] = self.df['investor_agent_payoff'] + self.df['trustee_agent_payoff']
+        # self.df['interaction_total_payoff'] = self.df['investor_agent_payoff'] + self.df['trustee_agent_payoff']
 
         logger.info(f"数据合并完成，总行数: {len(self.df)}，包含比例: {sorted(self.df['proportion'].unique())}")
 
@@ -269,6 +269,126 @@ class TrustGameAnalyzer:
 
         logger.info(f"分析报告已保存至: {output_path}")
 
+    def plot_returned_amount_with_effect_size(self, output_path: str, reference_proportion: float = 0.0):
+        """
+        生成与参考图片风格一致的组合图：
+          上半部分：返还金额的箱线图 + 均值点图（含置信区间）
+          下半部分：效应量（相对于参考比例）点图（含置信区间）
+
+        Args:
+            output_path: 图像保存路径（如 .png 或 .pdf）
+            reference_proportion: 作为参考的自由玩家比例（默认 0.0）
+        """
+        # 获取所有比例（排序）
+        proportions = sorted(self.df['proportion'].unique())
+        # 确保参考比例在列表中
+        if reference_proportion not in proportions:
+            raise ValueError(f"参考比例 {reference_proportion} 不在数据中")
+
+        # 1. 按比例 + agent 聚合平均返还金额
+        # 注意：每个 agent 在同一个比例下可能有多个轮次和多个邻居，取平均作为该 agent 的代表值
+        agent_avg_return = self.df.groupby(['proportion', 'investor_agent_id'])['returned_amount'].mean().reset_index()
+
+        # 存储每个比例下的所有个体平均返还金额（用于箱线图）
+        data_for_box = []
+        for p in proportions:
+            vals = agent_avg_return[agent_avg_return['proportion'] == p]['returned_amount'].values
+            data_for_box.append(vals)
+
+        # 2. 计算每个比例的总体均值及 95% 置信区间（基于个体平均）
+        means = []
+        cis = []
+        for p in proportions:
+            vals = agent_avg_return[agent_avg_return['proportion'] == p]['returned_amount'].values
+            mean_val = np.mean(vals)
+            sem = np.std(vals, ddof=1) / np.sqrt(len(vals))
+            ci = sem * 1.96  # 近似 95% CI，也可用 t 分布
+            means.append(mean_val)
+            cis.append(ci)
+
+        # 3. 效应量：各比例相对于参考比例的均值差（差值）及其 95% CI
+        # 获取参考组的个体均值
+        ref_vals = agent_avg_return[agent_avg_return['proportion'] == reference_proportion]['returned_amount'].values
+        ref_mean = np.mean(ref_vals)
+        ref_sem = np.std(ref_vals, ddof=1) / np.sqrt(len(ref_vals))
+
+        effect_sizes = []
+        effect_cis = []
+        for p in proportions:
+            if p == reference_proportion:
+                effect_sizes.append(0.0)
+                effect_cis.append(0.0)
+            else:
+                vals = agent_avg_return[agent_avg_return['proportion'] == p]['returned_amount'].values
+                mean_diff = np.mean(vals) - ref_mean
+                # 两组独立样本的差值的标准误
+                sem_diff = np.sqrt((np.std(vals, ddof=1) ** 2 / len(vals)) +
+                                   (np.std(ref_vals, ddof=1) ** 2 / len(ref_vals)))
+                ci_diff = sem_diff * 1.96
+                effect_sizes.append(mean_diff)
+                effect_cis.append(ci_diff)
+
+        # 4. 创建画布和子图
+        fig, (ax_top, ax_bottom) = plt.subplots(2, 1, figsize=(8, 8),
+                                                sharex=True,
+                                                gridspec_kw={'height_ratios': [2, 1],
+                                                             'hspace': 0.05})
+
+        # 颜色定义
+        olive_green = '#6B8E23'  # 橄榄绿
+        reddish_brown = '#A0522D'  # 红棕色
+
+        # ========== 上半部分：箱线图 + 均值点图 ==========
+        # 箱线图
+        box = ax_top.boxplot(data_for_box, positions=proportions, widths=0.6,
+                             patch_artist=True,
+                             boxprops=dict(facecolor=olive_green, color='black', linewidth=1.2),
+                             whiskerprops=dict(color='black', linewidth=1.2),
+                             capprops=dict(color='black', linewidth=1.2),
+                             medianprops=dict(color='black', linewidth=1.5),
+                             flierprops=dict(marker='o', markerfacecolor='gray', markersize=3, alpha=0.5))
+        # 添加均值点图（红棕色）
+        ax_top.errorbar(proportions, means, yerr=cis, fmt='o', color=reddish_brown,
+                        capsize=5, capthick=1.5, markersize=8, label='Mean ± 95% CI')
+        ax_top.set_ylabel('Returned amount', fontsize=12)
+        ax_top.set_title('', fontsize=14)
+        ax_top.legend(loc='upper right', frameon=False)
+        ax_top.grid(axis='y', linestyle='--', alpha=0.5)
+
+        # ========== 下半部分：效应量点图 ==========
+        # 只显示非参考比例的点
+        effect_props = [p for p in proportions if p != reference_proportion]
+        effect_vals = [effect_sizes[i] for i, p in enumerate(proportions) if p != reference_proportion]
+        effect_errs = [effect_cis[i] for i, p in enumerate(proportions) if p != reference_proportion]
+
+        ax_bottom.errorbar(effect_props, effect_vals, yerr=effect_errs, fmt='o',
+                           color=reddish_brown, capsize=5, capthick=1.5, markersize=8)
+        # 添加参考线 y=0
+        ax_bottom.axhline(y=0, color='black', linestyle='--', linewidth=1)
+        ax_bottom.set_ylabel('Effect size\n(difference from 0% free)', fontsize=12)
+        ax_bottom.set_xlabel('Fraction of free players', fontsize=12)
+        ax_bottom.set_xticks(proportions)
+        ax_bottom.set_xticklabels([f'{int(p * 100)}%' for p in proportions])
+        ax_bottom.grid(axis='y', linestyle='--', alpha=0.5)
+
+        # 设置纵轴范围（可选）
+        all_return_vals = agent_avg_return['returned_amount'].values
+        y_top_max = np.percentile(all_return_vals, 95) + 1
+        y_top_min = max(0, np.percentile(all_return_vals, 5) - 1)
+        ax_top.set_ylim(y_top_min, y_top_max)
+
+        # 效应量纵轴自动调整
+        all_effects = effect_vals
+        if all_effects:
+            y_bottom_max = max(all_effects) + max(effect_errs) * 1.2
+            y_bottom_min = min(all_effects) - max(effect_errs) * 1.2
+            ax_bottom.set_ylim(y_bottom_min, y_bottom_max)
+
+        plt.tight_layout()
+        plt.savefig(output_path, dpi=150, bbox_inches='tight')
+        plt.close()
+        logger.info(f"组合图已保存至: {output_path}")
+
     def plot_figures(self, output_dir: str, proportions: List[float] = None):
         """
         生成论文同款图表：
@@ -385,31 +505,34 @@ class TrustGameAnalyzer:
 if __name__ == "__main__":
     import glob
 
-    # 请将 csv_dir 修改为您的CSV文件所在目录
-    csv_dir = os.path.join(CommonUtils.get_project_root_path(), "outputs", "qwen3.5-flash_trust_game")
+    # 默认 CSV 文件路径
+    default_csv_path = os.path.join(
+        CommonUtils.get_project_root_path(),
+        "outputs",
+        "20260422_112210_qwen-flash_trust_game",
+        "20260422_112210_trust_game_p-[0, 0.25, 0.5, 0.75, 1].csv"
+    )
+    csv_path = default_csv_path
 
-    # 使用通配符匹配所有CSV文件
-    pattern = os.path.join(csv_dir, "*.csv")
-    csv_files = glob.glob(pattern)
+    if os.path.exists(csv_path):
+        print(f"分析文件: {csv_path}")
 
-    if csv_files:
-        print(f"找到 {len(csv_files)} 个CSV文件:")
-        for f in csv_files:
-            print(f"  - {f}")
+        analyzer = TrustGameAnalyzer([csv_path])
 
-        analyzer = TrustGameAnalyzer(csv_files)
-
-        # 创建输出目录
-        output_dir = os.path.join(CommonUtils.get_project_root_path(), "outputs", "qwen3.5-flash_trust_game")
-        os.makedirs(output_dir, exist_ok=True)
-
+        output_dir = os.path.dirname(csv_path)
         report_path = os.path.join(output_dir, "analysis_report.txt")
         figures_dir = os.path.join(output_dir, "figures")
 
         analyzer.generate_report(report_path)
         analyzer.plot_figures(figures_dir)
+
+        combined_fig_path = os.path.join(figures_dir, "returned_amount_effect.png")
+        analyzer.plot_returned_amount_with_effect_size(combined_fig_path)
+
         print("\n分析完成！")
         print(f"报告保存至: {report_path}")
         print(f"图表保存至: {figures_dir}")
     else:
-        print(f"未找到CSV文件，请检查路径: {pattern}")
+        print(f"文件不存在: {csv_path}")
+        print(f"使用方法: python analysy.py <csv_file_path>")
+        print(f"示例: python analysy.py outputs/xxx.csv")

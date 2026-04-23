@@ -64,15 +64,15 @@ class Params:
         self.num_agents = 16
         self.width: int = int(self.num_agents ** 0.5)  # 根号 N
         self.height: int = self.width
-        self.proportions = [0.25, 0.5, 0.75, 1]  # 自由节点比例 0, 0.25, 0.5, 0.75, 1
+        self.proportions = [0]  # 自由节点比例 0, 0.25, 0.5, 0.75, 1
         self.model_type_list = [ModelType.QWEN_FLASH.value]
         self.game_type = GameType.TRUST.value
-        self.rounds = 20  # 游戏轮数
+        self.rounds = 30  # 游戏轮数
         self.iterations = 1
 
         ################# LLM 参数 ####################
         load_dotenv()
-        self.api_key = os.getenv("QWEN_API_KEY")
+        self.api_key = os.getenv("QWEN_API_KEY_131")
         if not self.api_key:
             raise ValueError("请设置环境变量 QWEN_API_KEY")
         self.api_base_url = os.getenv("QWEN_API_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")

@@ -554,6 +554,7 @@ class GameModel(mesa.Model):
                     "returned_amount": returned_amount,
                     "investor_agent_payoff": investor_payoff,
                     "trustee_agent_payoff": trustee_payoff,
+                    "interaction_total_payoff": investor_payoff + trustee_payoff,
                 }
                 self.all_data.append(row)
     def reset_record(self):
