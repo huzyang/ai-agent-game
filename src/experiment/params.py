@@ -77,7 +77,7 @@ class Params:
             raise ValueError("请设置环境变量 QWEN_API_KEY")
         self.api_base_url = os.getenv("QWEN_API_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
         self.temperature = 0.7
-        self.max_tokens = 100
+        self.max_tokens = 4096
 
     @property
     def model_init_params(self):

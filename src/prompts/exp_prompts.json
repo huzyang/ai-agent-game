@@ -67,9 +67,9 @@
   "Behavioral_objective": "\n# Behavioral Objective\nThe experiment investigates how social networking agency (free vs. constrained) influences prosocial behavior. \n- Free player: The player may formulate independent token-sending decisions for each neighbor. Decisions may either be uniform or differ across neighbors, reflecting discretionary social networking agency.\n- Constrained Player: The player are required to select a single, uniform number of tokens to send to all neighbors. Only one unified value may be used, which shall be repeated for every neighbor in the specified output format.",
 
   "Output requirements": {
-    "General": "\n# Output Requirements (strict)\n1. For each round, output only the send amounts to your four neighbors in original order.\n2. Format: `{Neighbor1 ID: integer, Neighbor2 ID: integer, ...}`",
-    "BDI": "\n3. Your answer must explicitly include the content and analysis about your Belief, Desire, and Intention to explain your reasoning process.",
-    "Simple": "\n3. Directly output the dictionary only, no reasoning, no extra words, no other sentences."
+    "General": "\n# Output Requirements (strict)",
+    "BDI": "\n1. Your answer must explicitly include the content and analysis about your Belief, Desire, and Intention to explain your reasoning process.\n2. At last, output the send amounts to your four neighbors in original order with the format `{Neighbor1 ID: integer, Neighbor2 ID: integer, ...}`.",
+    "Simple": "\n1. Output only the send amounts to your four neighbors in original order with the format: `{Neighbor1 ID: integer, Neighbor2 ID: integer, ...}`.\n2. Directly output the dictionary only, no reasoning, no extra words, no other sentences."
   },
   "Consistency": "\n# Consistency\nYou must remember the above rules, your identity, and the experimental setup across all rounds. Your decisions should not drift randomly.",
 

@@ -1,7 +1,5 @@
 import random
-import mesa
-import numpy as np
-from enum import IntEnum
+from typing import Optional
 from camel.agents import ChatAgent
 from mesa.discrete_space import CellAgent
 
@@ -21,9 +19,9 @@ class BaseAgent(CellAgent):
         self.T_received_2 = []
         self.T_returned_3 = []
         self.I_received_4 = []
-        self.payoff = 0.0  # 每一轮的最终收益
+        self.payoff = 0.0  # 最终收益
         self.type_restriction = ""
-        self.llm_agent = None
+        self.llm_agent: Optional[ChatAgent] = None
 
     def __str__(self):
         return f"Agent {self.unique_id}: Position: {self.cell.coordinate}; Neighbors: {self.neighbor_ids}; Payoff: {self.payoff:.2f}"

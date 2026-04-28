@@ -79,6 +79,7 @@ class GameModel(mesa.Model):
         self.initial_sys_prompt = {}
         self.dialogs = {}  # 存储每轮次对话数据
         self.all_data = []  # 存储所有轮次的数据行
+        self.token_usage = []  # 存储每轮次的token使用情况
 
         # 创建网格
         self.grid = OrthogonalVonNeumannGrid((scenario.width, scenario.height), torus=True, random=self.random)
@@ -120,33 +121,6 @@ class GameModel(mesa.Model):
         #     output_language="Chinese",
         # )
 
-    def get_all_neighbor_pairs(self) -> list:
-        """
-        获取网格中所有的邻居对。
-        例如 [[0,1,2],[3,4,5],[6,7,8]] 中，0 号节点的邻居对有 [0,1],[0,3],[0,2],[0,6]
-        返回格式：[[agent_id_1, agent_id_2], ...]
-        """
-        neighbor_pairs = []
-        width = self.width
-        height = self.height
-
-        # 遍历所有节点
-        for x in range(width):
-            for y in range(height):
-                agent_id = x * height + y
-
-                # 获取该位置的所有邻居（冯·诺依曼邻域：上下左右）
-                cell = self.grid[(x, y)]
-                neighbors = list(cell.neighborhood.agents)
-
-                # 将当前节点与每个邻居组成对
-                for neighbor in neighbors:
-                    neighbor_id = neighbor.unique_id
-                    # 避免重复，只添加 id 小的在前面的对
-                    if agent_id < neighbor_id:
-                        neighbor_pairs.append([agent_id, neighbor_id])
-
-        return neighbor_pairs
 
     def init_chat_agent(self):
         # 计算自由玩家数量
@@ -176,18 +150,18 @@ class GameModel(mesa.Model):
 
             agent.type_restriction = restriction_set[i]
             # 设置ChatAgent
-            agent.set_llm_agent(
-                ChatAgent(
+            llm_agent = ChatAgent(
                     BaseMessage(
-                        role_name="player",
-                        role_type=RoleType.USER,
+                        role_name=f"Player_{agent.unique_id}",
+                        role_type=RoleType.SYSTEM,
                         meta_dict={},
                         content=content
                     ),
                     model=self.llm_model,
+                    token_limit=32768,  # 根据实际模型支持的长度设置，例如 32K
                     output_language="English",
                 )
-            )
+            agent.set_llm_agent(llm_agent)
 
             # 记录人物特征与初始系统提示词 initial_sys_prompt
             self.initial_sys_prompt[f"agent_{agent.unique_id}_{agent.type_restriction}_position-{agent.cell.coordinate}"] = content
@@ -246,7 +220,7 @@ class GameModel(mesa.Model):
             })
 
         # 使用线程池并行执行所有任务
-        max_workers = min(self.num_agents, 10)  # 限制最大并发数为10，避免API限流
+        max_workers = min(self.num_agents, 1)  # 限制最大并发数为10，避免API限流
         results = {}
 
         with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix=f"{player_type}_worker") as executor:
@@ -336,25 +310,37 @@ class GameModel(mesa.Model):
         return prompt
 
     def _call_llm(self, focal_agent, prompt, player_type="Investor"):
-        import time
-        start_time = time.time()
+
         try:
-            focal_agent_response = focal_agent.llm_agent.step(prompt).msgs[0]
+            response_obj = focal_agent.llm_agent.step(prompt)
+            focal_agent_response = response_obj.msgs[0]
 
-            # Debug
-            # invest_value = {}
-            # for id in focal_agent.neighbor_ids:
-            #     invest_value[id] = random.randint(1, 5)
-            # focal_agent_response = f"\nThis round, I decide to send {invest_value} to each neighbor."
+            # 提取token使用信息
+            token_usage = None
+            if hasattr(response_obj, 'info') and response_obj.info:
+                info = response_obj.info
+                if 'usage' in info:
+                    token_usage = info['usage']
+                elif 'raw_response' in info:
+                    raw_resp = info['raw_response']
+                    if isinstance(raw_resp, dict) and 'usage' in raw_resp:
+                        token_usage = raw_resp['usage']
+                    elif hasattr(raw_resp, 'usage'):
+                        token_usage = raw_resp.usage
 
-            # elapsed_time = time.time() - start_time
-            # logger.info(f"✅ [{player_type}] Agent {focal_agent.unique_id} 投资决策完成 - API耗时: {elapsed_time:.2f}秒")
-            # logger.debug(f"  响应: {str(focal_agent_response)[:100]}...")
+            # 记录token使用情况
+            if token_usage:
+                prompt_tokens = token_usage.get('prompt_tokens', 0) if isinstance(token_usage, dict) else getattr(token_usage, 'prompt_tokens', 0)
+                completion_tokens = token_usage.get('completion_tokens', 0) if isinstance(token_usage, dict) else getattr(token_usage, 'completion_tokens', 0)
+                total_tokens = token_usage.get('total_tokens', 0) if isinstance(token_usage, dict) else getattr(token_usage, 'total_tokens', 0)
+                self.token_usage.append(total_tokens)
+
+                logger.info(f"✅ [{player_type}] Agent {focal_agent.unique_id} 调用完成 - "
+                            f"Tokens: {total_tokens}(输入:{prompt_tokens}, 输出:{completion_tokens})")
 
             return focal_agent_response
         except Exception as e:
-            elapsed_time = time.time() - start_time
-            logger.error(f"❌ [{player_type}] Agent {focal_agent.unique_id} 调用失败 - 耗时: {elapsed_time:.2f}秒 - 错误: {str(e)}")
+            logger.error(f"❌ [{player_type}] Agent {focal_agent.unique_id} 调用失败 - 错误: {str(e)}")
             raise
 
     def record_agent_investment(self):
