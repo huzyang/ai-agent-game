@@ -392,12 +392,14 @@ class TrustGameAnalyzer:
     def export_pivoted_metrics_to_excel(self, output_excel_path: str):
         """
         计算每一轮的平均委托金额、平均返还金额、群体总收益，
-        并按 proportion 分组，分别写入三个 Excel 工作表。
+        以及每个代理各比例下所有轮的平均委托金额，
+        按 proportion 分组，分别写入四个 Excel 工作表。
 
         输出工作表：
-            - mean_invested: 各比例每轮的平均委托金额
-            - mean_returned: 各比例每轮的平均返还金额
+            - round_mean_invested: 各比例每轮的平均委托金额
+            - round_mean_returned: 各比例每轮的平均返还金额
             - total_payoff: 各比例每轮的群体总收益（interaction_total_payoff 之和）
+            - agent_mean_invested: 每个代理各比例下所有轮的平均委托金额
 
         参数:
             output_excel_path: 输出 Excel 文件路径
@@ -405,16 +407,16 @@ class TrustGameAnalyzer:
         proportions = sorted(self.df['proportion'].unique())
 
         # 1. 平均委托金额（按轮次、比例聚合）
-        mean_invested = self.df.groupby(['round', 'proportion'])['invested_amount'].mean().reset_index()
-        mean_invested_pivot = mean_invested.pivot(index='round', columns='proportion', values='invested_amount')
-        mean_invested_pivot.columns = [f'proportion={c}' for c in mean_invested_pivot.columns]
-        mean_invested_pivot.reset_index(inplace=True)
+        round_mean_invested = self.df.groupby(['round', 'proportion'])['invested_amount'].mean().reset_index()
+        round_mean_invested_pivot = round_mean_invested.pivot(index='round', columns='proportion', values='invested_amount')
+        round_mean_invested_pivot.columns = [f'proportion={c}' for c in round_mean_invested_pivot.columns]
+        round_mean_invested_pivot.reset_index(inplace=True)
 
         # 2. 平均返还金额
-        mean_returned = self.df.groupby(['round', 'proportion'])['returned_amount'].mean().reset_index()
-        mean_returned_pivot = mean_returned.pivot(index='round', columns='proportion', values='returned_amount')
-        mean_returned_pivot.columns = [f'proportion={c}' for c in mean_returned_pivot.columns]
-        mean_returned_pivot.reset_index(inplace=True)
+        round_mean_returned = self.df.groupby(['round', 'proportion'])['returned_amount'].mean().reset_index()
+        round_mean_returned_pivot = round_mean_returned.pivot(index='round', columns='proportion', values='returned_amount')
+        round_mean_returned_pivot.columns = [f'proportion={c}' for c in round_mean_returned_pivot.columns]
+        round_mean_returned_pivot.reset_index(inplace=True)
 
         # 3. 群体总收益（每轮所有交互的收益之和）
         total_payoff = self.df.groupby(['round', 'proportion'])['interaction_total_payoff'].sum().reset_index()
@@ -422,13 +424,20 @@ class TrustGameAnalyzer:
         total_payoff_pivot.columns = [f'proportion={c}' for c in total_payoff_pivot.columns]
         total_payoff_pivot.reset_index(inplace=True)
 
+        # 4. 每个代理在各比例下的平均委托金额（所有轮）
+        agent_mean_invested = self.df.groupby(['investor_agent_id', 'proportion'])['invested_amount'].mean().reset_index()
+        agent_mean_invested_pivot = agent_mean_invested.pivot(index='investor_agent_id', columns='proportion', values='invested_amount')
+        agent_mean_invested_pivot.columns = [f'proportion={c}' for c in agent_mean_invested_pivot.columns]
+        agent_mean_invested_pivot.reset_index(inplace=True)
+
         # 写入 Excel 文件
         with pd.ExcelWriter(output_excel_path, engine='openpyxl') as writer:
-            mean_invested_pivot.to_excel(writer, sheet_name='mean_invested', index=False)
-            mean_returned_pivot.to_excel(writer, sheet_name='mean_returned', index=False)
+            round_mean_invested_pivot.to_excel(writer, sheet_name='round_mean_invested', index=False)
+            round_mean_returned_pivot.to_excel(writer, sheet_name='round_mean_returned', index=False)
             total_payoff_pivot.to_excel(writer, sheet_name='total_payoff', index=False)
+            agent_mean_invested_pivot.to_excel(writer, sheet_name='agent_mean_invested', index=False)
 
-        logger.info(f"每轮聚合指标已导出至: {output_excel_path}")
+        logger.info(f"每轮聚合指标及代理平均委托金额已导出至: {output_excel_path}")
 
     def plot_figures(self, output_dir: str, proportions: List[float] = None):
         """

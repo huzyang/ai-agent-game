@@ -198,6 +198,8 @@ class GameModel(mesa.Model):
         # 初始化当前轮次的记录字典
         round_key = f"round_{self.step}"
         self.dialogs[round_key] = {}
+        self.agents_invested_amounts[round_key] = {}
+        self.agents_returned_amounts[round_key] = {}
 
         # 1. 依次扮演信托者
         self.role_stage(player_type="investor")
@@ -289,11 +291,12 @@ class GameModel(mesa.Model):
             if player_type == "investor":
                 logger.info(f"📝 investor agent_{focal_agent.unique_id} 的决策为: {send_amounts}")
                 focal_agent.I_invested_1.append(send_amounts)
-                self.agents_invested_amounts[focal_agent.unique_id] = send_amounts
+                self.agents_invested_amounts[round_key][agent_key] = send_amounts
+
             elif player_type == "trustee":
                 logger.info(f"📝 trustee agent_{focal_agent.unique_id} 的决策为: {send_amounts}")
                 focal_agent.T_returned_3.append(send_amounts)
-                self.agents_returned_amounts[focal_agent.unique_id] = send_amounts
+                self.agents_returned_amounts[round_key][agent_key] = send_amounts
 
             self.dialogs[round_key][agent_key][f"as_{player_type}"] = {
                 "prompt": tasks[i]['prompt'],
