@@ -30,7 +30,7 @@ if not logger.handlers:
     console_handler.setFormatter(formatter)
     logger.addHandler(console_handler)
 
-with open(os.path.join(CommonUtils.get_project_root_path(), "src/prompts/exp_prompts.json"), "r", encoding="utf-8") as f:
+with open(os.path.join(CommonUtils.get_project_root_path(), "src/prompts/all_prompts.json"), "r", encoding="utf-8") as f:
     exp_prompts = json.load(f)
 
 p_characters = exp_prompts.get("Character", [])
@@ -84,6 +84,7 @@ class GameModel(mesa.Model):
         # 创建网格
         self.grid = OrthogonalVonNeumannGrid((scenario.width, scenario.height), torus=True, random=self.random)
         BaseAgent.create_agents(self, n=self.num_agents, cell=self.grid.all_cells.cells)
+        self.init_player_type()
 
         # 创建LLM模型
         self.llm_model = ModelFactory.create(
@@ -121,12 +122,9 @@ class GameModel(mesa.Model):
         #     output_language="Chinese",
         # )
 
-
-    def init_chat_agent(self):
-        # 计算自由玩家数量
-        num_free_players = int(self.num_agents * self.proportion)
-
+    def init_player_type(self):
         # 创建限制类型列表：前num_free_players个为自由玩家，其余为受限玩家
+        num_free_players = int(self.num_agents * self.proportion)
         restriction_set = []
         for i in range(self.num_agents):
             if i < num_free_players:
@@ -136,19 +134,22 @@ class GameModel(mesa.Model):
 
         # 随机打乱顺序以随机分配玩家类型
         random.shuffle(restriction_set)
-
         for i in range(self.num_agents):
             agent = self.get_agent(i)
             agent.unique_id = agent.unique_id - 1
+            agent.type_restriction = restriction_set[i]
 
+    def init_chat_agent(self):
+        for agent in self.agents:
+            id_type = agent.id_type
+            neighbors_id_type = agent.neighbor_id_type
             # 系统提示词组成： p_characters[i] + p_like_people + p_experiment_info + p_game_rules.get("trust_game") + p_behavioral_objective + p_output_requirements + p_consistency
             # character = p_characters[i]
             character = random.choice(p_characters_student[:2])  # 测试使用
-            position = p_experiment_info.format(id=agent.unique_id, neighbors=agent.neighbor_ids)
+            agent_setting = p_settings.format(focal=id_type, n1=neighbors_id_type[0], n2=neighbors_id_type[1], n3=neighbors_id_type[2], n4=neighbors_id_type[3])
             output_requirements = p_output_requirements.get("General") + p_output_requirements.get("Simple")
-            content: str = character + p_like_people + position + p_game_rules.get("trust_game") + p_behavioral_objective + output_requirements + p_consistency
+            content: str = character + p_like_people + p_experiment_info + p_game_rules.get("trust_game") + agent_setting + output_requirements
 
-            agent.type_restriction = restriction_set[i]
             # 设置ChatAgent
             llm_agent = ChatAgent(
                     BaseMessage(
@@ -164,7 +165,7 @@ class GameModel(mesa.Model):
             agent.set_llm_agent(llm_agent)
 
             # 记录人物特征与初始系统提示词 initial_sys_prompt
-            self.initial_sys_prompt[f"agent_{agent.unique_id}_{agent.type_restriction}_position-{agent.cell.coordinate}"] = content
+            self.initial_sys_prompt[f"agent_{agent.unique_id}_{agent.type_restriction}"] = content
 
     def _step(self):
         """模型每一步的执行"""

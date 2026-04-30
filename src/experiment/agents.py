@@ -26,6 +26,17 @@ class BaseAgent(CellAgent):
     def __str__(self):
         return f"Agent {self.unique_id}: Position: {self.cell.coordinate}; Neighbors: {self.neighbor_ids}; Payoff: {self.payoff:.2f}"
 
+    @property
+    def id_type(self) -> dict:
+        return {"id": self.unique_id, "player type": self.type_restriction}
+    @property
+    def neighbor_id_type(self) -> list:
+        ids = self.neighbor_ids
+        neighbors_id_type = []
+        for id in ids:
+            neighbors_id_type.append({"id": id, "player type": self.model.get_agent(id).type_restriction})
+        return neighbors_id_type
+
     def set_llm_agent(self, llm_agent: ChatAgent) -> None:
         self.llm_agent = llm_agent
     @property
