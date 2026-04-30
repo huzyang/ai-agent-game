@@ -37,16 +37,16 @@ p_characters = exp_prompts.get("Character", [])
 random.shuffle(p_characters)
 p_characters_student = exp_prompts.get("Character_student", [])
 p_like_people = exp_prompts.get("Like-people", "")
-p_experiment_info = exp_prompts.get("Experiment_context", "")  # format id, position, neighbors
-p_game_rules = exp_prompts.get("Game_rule", "")
-p_behavioral_objective = exp_prompts.get("Behavioral_objective", "")
+p_experiment_info = exp_prompts.get("Experiment_context", "")
+p_goal = exp_prompts.get("Individual_goal", "")
+p_game_rules = exp_prompts.get("Gameplay_rule", "")
+p_settings = exp_prompts.get("Settings", "")
 p_output_requirements = exp_prompts.get("Output requirements", "")  # neighbors
-p_consistency = exp_prompts.get("Consistency", "")
 
 p_decision_stages = exp_prompts.get("Decision stages", "")  # step, type
 p_end = exp_prompts.get("End", "")
 p_decision = exp_prompts.get("Decision", "")  # step, received_amounts
-p_memory = exp_prompts.get("Memory", "")  # I_invested_1,I_received_4,T_received_2,T_returned_3,payoff
+p_result = exp_prompts.get("Result", "")  # I_invested_1,I_received_4,T_received_2,T_returned_3,payoff
 
 
 class GameModel(mesa.Model):
