@@ -77,7 +77,7 @@
     "investor": "\nNew round begins. Round {step}, stage 1. As a trustor, how many tokens will you send to each neighbor?",
     "trustee": " As a trustee, how many tokens will you return to each neighbor?"
   },
-  "Decision": "\nRound {step}, stage 2. Neighbors sent: {received_amounts}, total sent: {}, you received:{}.",
-  "Result": "\nPrevious Round Summary\nAs trustor: \n- you sent to neighbors: {I_invested_1}\n- neighbors returned: {I_received_4}\n- Total sent: {}; Total returned: {}, Payoff: {}\nAs trustee: \n- Received from neighbors: {T_received_2}; \n- Returned to neighbors: {T_returned_3}. \n- Total received: {}; Total returned: {}; Payoff: {}\nCumulative balance: {} + {} + {} = {}",
+  "Decision": "\nRound {step}, stage 2. Neighbors sent: {send_amounts}, total sent: {total}, you received:{received}.",
+  "Result": "\nPrevious Round Summary\nAs trustor: \n- you sent to neighbors: {I_invested_1}\n- neighbors returned: {I_received_4}\n- Total sent: {total_send}; Total received: {i_total_received}, Payoff: {trustor_payoff}\nAs trustee: \n- Received from neighbors: {T_received_2}; \n- Returned to neighbors: {T_returned_3}. \n- Total received: {t_total_received}; Total returned: {total_returned}; Payoff: {trustee_payoff}\nCumulative balance: {last_balance} + {trustor_payoff} + {trustee_payoff} = {balance}",
   "End": " Please make rule-compliant decisions and respond strictly in accordance with the output requirements."
 }

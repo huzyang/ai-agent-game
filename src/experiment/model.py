@@ -189,7 +189,7 @@ class GameModel(mesa.Model):
         self.record_agent_return()
 
         # 5. 计算收益
-        self.agents.do("update_payoff")
+        self.agents.do("update_balance_and_last_balance")
 
         # 6：收集当前轮次数据
         self._collect_data()
@@ -265,12 +265,12 @@ class GameModel(mesa.Model):
 
             if player_type == "investor":
                 logger.info(f"📝 investor agent_{focal_agent.unique_id} 的决策为: {send_amounts}")
-                focal_agent.I_invested_1.append(send_amounts)
+                focal_agent.invested_amounts.append(send_amounts)
                 self.agents_invested_amounts[round_key][agent_key] = send_amounts
 
             elif player_type == "trustee":
                 logger.info(f"📝 trustee agent_{focal_agent.unique_id} 的决策为: {send_amounts}")
-                focal_agent.T_returned_3.append(send_amounts)
+                focal_agent.returned_to_neighbors.append(send_amounts)
                 self.agents_returned_amounts[round_key][agent_key] = send_amounts
 
             self.dialogs[round_key][agent_key][f"as_{player_type}"] = {
@@ -286,34 +286,59 @@ class GameModel(mesa.Model):
         prompt = additional_info
         if self.step == 1:
             if player_type == "investor":
-                decision_stages = p_decision_stages.get("investor").format(step=self.step, type=agent.type_restriction)
+                decision_stages = p_decision_stages.get("investor").format(step=self.step)
                 prompt = decision_stages + p_end
 
             elif player_type == "trustee":
-                received_amounts = agent.T_received_2[-1]
-                investor_decision = p_decision.format(step=self.step, received_amounts=received_amounts)
+                send_amounts = agent.received_from_neighbors[-1]
+                total_value = sum(send_amounts.values())
+                investor_decision = p_decision.format(step=self.step, send_amounts=send_amounts, total=total_value, received=3 * total_value)
                 decision_stages = p_decision_stages.get("trustee")
                 prompt = investor_decision + decision_stages + p_end
 
         else:
             if player_type == "investor":
-                memory = p_memory.format(last_step=self.step - 1, I_invested_1=agent.I_invested_1[-1], I_received_4=agent.I_received_4[-1], T_received_2=agent.T_received_2[-1],
-                                         T_returned_3=agent.T_returned_3[-1])
-                decision_stages = p_decision_stages.get("investor").format(step=self.step, type=agent.type_restriction)
-                prompt = memory + decision_stages + p_end
+
+                round_result = p_result.format(
+                    I_invested_1=agent.invested_amounts[-1],
+                    I_received_4=agent.received_returns[-1],
+                    total_send=agent.total_sent,
+                    i_total_received=agent.total_received_return,
+                    trustor_payoff=agent.trustor_payoff,
+                    T_received_2=agent.received_from_neighbors[-1],
+                    T_returned_3=agent.returned_to_neighbors[-1],
+                    t_total_received=agent.total_received_as_trustee,
+                    total_returned=agent.total_returned,
+                    trustee_payoff=agent.trustee_payoff,
+                    last_balance=agent.last_balance,
+                    balance=agent.balance
+                )
+                decision_stages = p_decision_stages.get("investor").format(step=self.step)
+                prompt = round_result + decision_stages + p_end
 
             elif player_type == "trustee":
-                received_amounts = agent.T_received_2[-1]
-                investor_decision = p_decision.format(step=self.step, received_amounts=received_amounts)
+                received_amounts = agent.received_from_neighbors[-1]
+                total_value = sum(received_amounts.values())
+                investor_decision = p_decision.format(
+                    step=self.step,
+                    send_amounts=received_amounts,
+                    total=total_value,
+                    received=3 * total_value
+                )
                 decision_stages = p_decision_stages.get("trustee")
                 prompt = investor_decision + decision_stages + p_end
 
         return prompt
 
     def _call_llm(self, focal_agent, prompt, player_type="Investor"):
-
+        test_mode = False
         try:
-            response_obj = focal_agent.llm_agent.step(prompt)
+            # 测试模式：构造模拟的response_obj
+            if test_mode:
+                response_obj = self._create_mock_response(focal_agent, prompt)
+            else:
+                response_obj = focal_agent.llm_agent.step(prompt)
+
             focal_agent_response = response_obj.msgs[0]
 
             # 提取token使用信息
@@ -344,43 +369,90 @@ class GameModel(mesa.Model):
             logger.error(f"❌ [{player_type}] Agent {focal_agent.unique_id} 调用失败 - 错误: {str(e)}")
             raise
 
+    def _create_mock_response(self, focal_agent, prompt):
+        """构造模拟的response_obj用于测试"""
+        import time
+        from types import SimpleNamespace
+
+        # 生成随机投资决策
+        neighbor_ids = focal_agent.neighbor_ids
+        if focal_agent.type_restriction == "constrained":
+            # 受限玩家：所有邻居发送相同金额
+            amount = random.randint(0, 5)
+            send_amounts = {nid: amount for nid in neighbor_ids}
+        else:
+            # 自由玩家：可以给不同邻居发送不同金额
+            send_amounts = {nid: random.randint(0, 5) for nid in neighbor_ids}
+
+        # 构造消息内容
+        content = str(send_amounts)
+
+        # 构造msgs
+        msg = SimpleNamespace(
+            content=content,
+            reasoning_content=None,
+            role='assistant'
+        )
+
+        # 构造info（包含token使用信息）
+        info = {
+            'usage': {
+                'prompt_tokens': len(prompt.split()),
+                'completion_tokens': len(content.split()),
+                'total_tokens': len(prompt.split()) + len(content.split())
+            }
+        }
+
+        # 构造response_obj
+        response_obj = SimpleNamespace(
+            msgs=[msg],
+            info=info
+        )
+
+        logger.debug(f"🧪 [TEST] Agent {focal_agent.unique_id} 使用模拟响应: {send_amounts}")
+
+        return response_obj
+
+
     def record_agent_investment(self):
+        """记录所有代理从邻居收到的投资金额"""
         for i in range(self.num_agents):
             focal_agent = self.get_agent(i)
 
+            # 从每个邻居那里收集投资金额
             received_from_neighbors = {}
             for neighbor_id in focal_agent.neighbor_ids:
                 neighbor_agent = self.get_agent(neighbor_id)
 
-                if neighbor_agent.I_invested_1:
-                    last_investment = neighbor_agent.I_invested_1[-1]
-
+                # 获取邻居上一轮的投资决策
+                if neighbor_agent.invested_amounts:
+                    last_investment = neighbor_agent.invested_amounts[-1]
                     amount_to_focal = last_investment.get(focal_agent.unique_id, 0)
-
                     received_from_neighbors[neighbor_id] = amount_to_focal
 
-            focal_agent.T_received_2.append(received_from_neighbors)
+            # 记录到当前代理的收到列表中
+            focal_agent.received_from_neighbors.append(received_from_neighbors)
 
             logger.debug(f"Agent {i} 收到邻居投资: {received_from_neighbors}")
 
-        # self.agents_invested_amounts = []
-
     def record_agent_return(self):
+        """记录所有代理从邻居收到的返还金额"""
         for i in range(self.num_agents):
             focal_agent = self.get_agent(i)
 
+            # 从每个邻居那里收集返还金额
             returned_from_neighbors = {}
             for neighbor_id in focal_agent.neighbor_ids:
                 neighbor_agent = self.get_agent(neighbor_id)
 
-                if neighbor_agent.T_returned_3:
-                    last_return = neighbor_agent.T_returned_3[-1]
-
+                # 获取邻居上一轮的返还款项
+                if neighbor_agent.returned_to_neighbors:
+                    last_return = neighbor_agent.returned_to_neighbors[-1]
                     amount_to_focal = last_return.get(focal_agent.unique_id, 0)
-
                     returned_from_neighbors[neighbor_id] = amount_to_focal
 
-            focal_agent.I_received_4.append(returned_from_neighbors)
+            # 记录到当前代理的收到返还列表中
+            focal_agent.received_returns.append(returned_from_neighbors)
 
             logger.debug(f"Agent {i} 收到邻居返还: {returned_from_neighbors}")
 
@@ -465,49 +537,87 @@ class GameModel(mesa.Model):
         elapsed_time = time.time() - start_time
 
         # 计算统计信息
-        total_interactions = len(self.all_data)
-        avg_invested = sum(row['invested_amount'] for row in self.all_data) / total_interactions if total_interactions > 0 else 0
-        avg_returned = sum(row['returned_amount'] for row in self.all_data) / total_interactions if total_interactions > 0 else 0
-        avg_investor_payoff = sum(row['investor_agent_payoff'] for row in self.all_data) / total_interactions if total_interactions > 0 else 0
-        avg_trustee_payoff = sum(row['trustee_agent_payoff'] for row in self.all_data) / total_interactions if total_interactions > 0 else 0
+        total_records = len(self.all_data)
 
-        # 按智能体类型统计
-        free_agents_data = [row for row in self.all_data if row['investor_agent_type'] == 'free']
-        constrained_agents_data = [row for row in self.all_data if row['investor_agent_type'] == 'constrained']
+        if total_records > 0:
+            # 基础统计
+            avg_sent = sum(row['sent_total'] for row in self.all_data) / total_records
+            avg_received_return = sum(row['received_return_total'] for row in self.all_data) / total_records
+            avg_received_send = sum(row['received_send_total'] for row in self.all_data) / total_records
+            avg_returned = sum(row['returned_total'] for row in self.all_data) / total_records
 
-        avg_invested_free = sum(row['invested_amount'] for row in free_agents_data) / len(free_agents_data) if free_agents_data else 0
-        avg_invested_constrained = sum(row['invested_amount'] for row in constrained_agents_data) / len(constrained_agents_data) if constrained_agents_data else 0
+            # 收益统计
+            avg_trustor_payoff = sum(row['trustor_payoff'] for row in self.all_data) / total_records
+            avg_trustee_payoff = sum(row['trustee_payoff'] for row in self.all_data) / total_records
+            avg_round_payoff = sum(row['round_payoff'] for row in self.all_data) / total_records
 
-        all_dialogue = {"initial_sys_prompt": self.initial_sys_prompt,
-                        "dialogs": self.dialogs,
-                        "agent_invested_amounts": self.agents_invested_amounts,
-                        "agent_returned_amounts": self.agents_returned_amounts, }
+            # 按智能体类型统计
+            free_agents_data = [row for row in self.all_data if row['agent_type'] == 'free']
+            constrained_agents_data = [row for row in self.all_data if row['agent_type'] == 'constrained']
+
+            avg_sent_free = sum(row['sent_total'] for row in free_agents_data) / len(free_agents_data) if free_agents_data else 0
+            avg_sent_constrained = sum(row['sent_total'] for row in constrained_agents_data) / len(constrained_agents_data) if constrained_agents_data else 0
+
+            avg_payoff_free = sum(row['round_payoff'] for row in free_agents_data) / len(free_agents_data) if free_agents_data else 0
+            avg_payoff_constrained = sum(row['round_payoff'] for row in constrained_agents_data) / len(constrained_agents_data) if constrained_agents_data else 0
+
+            # Token使用统计
+            total_tokens = sum(self.token_usage) if self.token_usage else 0
+            avg_tokens_per_call = total_tokens / len(self.token_usage) if self.token_usage else 0
+        else:
+            avg_sent = avg_received_return = avg_received_send = avg_returned = 0
+            avg_trustor_payoff = avg_trustee_payoff = avg_round_payoff = 0
+            avg_sent_free = avg_sent_constrained = 0
+            avg_payoff_free = avg_payoff_constrained = 0
+            total_tokens = avg_tokens_per_call = 0
+
+        all_dialogue = {
+            "initial_sys_prompt": self.initial_sys_prompt,
+            "dialogs": self.dialogs,
+            "agent_invested_amounts": self.agents_invested_amounts,
+            "agent_returned_amounts": self.agents_returned_amounts,
+        }
 
         # 打印最终统计
         logger.info(f"\n{'=' * 70}")
         logger.info(f"🎉 实验运行完成！")
         logger.info(f"{'=' * 70}")
+
         logger.info(f"📊 核心指标统计:")
-        logger.info(f"  • 总交互次数: {total_interactions}")
-        logger.info(f"  • 平均委托金额: {avg_invested:.3f} / 5.0")
+        logger.info(f"  • 总记录数: {total_records}")
+        logger.info(f"  • 平均发送金额: {avg_sent:.3f} / 5.0")
+        logger.info(f"  • 平均收到返还: {avg_received_return:.3f}")
+        logger.info(f"  • 平均收到投资(3倍): {avg_received_send:.3f}")
         logger.info(f"  • 平均返还金额: {avg_returned:.3f}")
-        logger.info(f"  • 投资者平均收益: {avg_investor_payoff:.3f}")
+        logger.info(f"  • 投资者平均收益: {avg_trustor_payoff:.3f}")
         logger.info(f"  • 受托者平均收益: {avg_trustee_payoff:.3f}")
-        logger.info(f"  • 总体平均收益: {(avg_investor_payoff + avg_trustee_payoff):.3f}")
+        logger.info(f"  • 每轮平均总收益: {avg_round_payoff:.3f}")
+
         logger.info(f"\n👥 分类型统计:")
-        logger.info(f"  • 自由玩家平均委托: {avg_invested_free:.3f}")
-        logger.info(f"  • 受限玩家平均委托: {avg_invested_constrained:.3f}")
-        logger.info(f"  • 差异: {abs(avg_invested_free - avg_invested_constrained):.3f}")
+        logger.info(f"  • 自由玩家平均发送: {avg_sent_free:.3f}")
+        logger.info(f"  • 受限玩家平均发送: {avg_sent_constrained:.3f}")
+        logger.info(f"  • 发送差异: {abs(avg_sent_free - avg_sent_constrained):.3f}")
+        logger.info(f"  • 自由玩家平均收益: {avg_payoff_free:.3f}")
+        logger.info(f"  • 受限玩家平均收益: {avg_payoff_constrained:.3f}")
+        logger.info(f"  • 收益差异: {abs(avg_payoff_free - avg_payoff_constrained):.3f}")
+
+        logger.info(f"\n💰 Token使用统计:")
+        logger.info(f"  • 总Token消耗: {total_tokens}")
+        logger.info(f"  • 平均每次调用: {avg_tokens_per_call:.1f} tokens")
+
         logger.info(f"\n⏱️ 性能统计:")
         logger.info(f"  • 总耗时: {elapsed_time:.2f}秒")
         logger.info(f"  • 平均每轮耗时: {elapsed_time / max_round:.2f}秒")
-        logger.info(f"  • 平均每交互耗时: {elapsed_time / total_interactions * 1000:.2f}毫秒")
+        logger.info(f"  • 平均每记录耗时: {elapsed_time / total_records * 1000:.2f}毫秒" if total_records > 0 else "  • 无记录")
+
         logger.info(f"\n💾 数据记录:")
-        logger.info(f"  • 对话轮次记录: {len(self.dialogs)} 轮")
-        logger.info(f"  • 数据行数: {len(self.all_data)}")
+        logger.info(f"  • 对话轮次: {len(self.dialogs)} 轮")
+        logger.info(f"  • 数据行数: {total_records}")
+        logger.info(f"  • Token记录: {len(self.token_usage)} 次")
         logger.info(f"{'=' * 70}\n")
 
         return self.all_data, all_dialogue
+
 
     def get_agent(self, agent_id):
         """根据ID获取智能体"""
@@ -519,34 +629,61 @@ class GameModel(mesa.Model):
         每条记录对应一次投资者-受托者博弈。
         """
         for agent in self.agents:
-            # 获取当前轮次的数据
-            invested_dict = agent.I_invested_1[-1] if agent.I_invested_1 else {}  # 作为投资者，委托给各邻居的金额
-            returned_dict = agent.I_received_4[-1] if agent.I_received_4 else {}  # 作为投资者，从各邻居收到的返还金额
+            # 获取邻居ID列表（按排序顺序）
+            neighbor_ids = agent.neighbor_ids
 
-            for neighbor_id in agent.neighbor_ids:
-                invested_amount = invested_dict.get(neighbor_id, 0)
-                returned_amount = returned_dict.get(neighbor_id, 0)
+            # 获取当前轮次的各项数据
+            invested_dict = agent.invested_amounts[-1] if agent.invested_amounts else {}
+            received_returns_dict = agent.received_returns[-1] if agent.received_returns else {}
+            received_from_neighbors_dict = agent.received_from_neighbors[-1] if agent.received_from_neighbors else {}
+            returned_dict = agent.returned_to_neighbors[-1] if agent.returned_to_neighbors else {}
 
-                # 计算收益
-                investor_payoff = (5 - invested_amount) + returned_amount
-                trustee_payoff = 3 * invested_amount - returned_amount
+            # 提取发送给每个邻居的金额（按邻居顺序）
+            sent_values = [invested_dict.get(nid, 0) for nid in neighbor_ids]
+            received_return_values = [received_returns_dict.get(nid, 0) for nid in neighbor_ids]
+            received_send_values = [received_from_neighbors_dict.get(nid, 0) for nid in neighbor_ids]
+            returned_values = [returned_dict.get(nid, 0) for nid in neighbor_ids]
 
-                row = {
-                    "run_id": self.run_id,
-                    "iteration": self.iteration,
-                    "round": self.step,
-                    "num_agents": self.num_agents,
-                    "proportion": self.proportion,
-                    "investor_agent_id": agent.unique_id,
-                    "investor_agent_type": agent.type_restriction,
-                    "trustee_neighbor_id": neighbor_id,
-                    "invested_amount": invested_amount,
-                    "returned_amount": returned_amount,
-                    "investor_agent_payoff": investor_payoff,
-                    "trustee_agent_payoff": trustee_payoff,
-                    "interaction_total_payoff": investor_payoff + trustee_payoff,
-                }
-                self.all_data.append(row)
+            row = {
+                "run_id": self.run_id,
+                "iteration": self.iteration,
+                "round": self.step,
+                "num_agents": self.num_agents,
+                "proportion": self.proportion,
+                "agent_id": agent.unique_id,
+                "agent_type": agent.type_restriction,
+                "neighbor_1_id": neighbor_ids[0] if len(neighbor_ids) > 0 else None,
+                "neighbor_2_id": neighbor_ids[1] if len(neighbor_ids) > 1 else None,
+                "neighbor_3_id": neighbor_ids[2] if len(neighbor_ids) > 2 else None,
+                "neighbor_4_id": neighbor_ids[3] if len(neighbor_ids) > 3 else None,
+                "sent_to_n1": sent_values[0] if len(sent_values) > 0 else 0,
+                "sent_to_n2": sent_values[1] if len(sent_values) > 1 else 0,
+                "sent_to_n3": sent_values[2] if len(sent_values) > 2 else 0,
+                "sent_to_n4": sent_values[3] if len(sent_values) > 3 else 0,
+                "received_return_from_n1": received_return_values[0] if len(received_return_values) > 0 else 0,
+                "received_return_from_n2": received_return_values[1] if len(received_return_values) > 1 else 0,
+                "received_return_from_n3": received_return_values[2] if len(received_return_values) > 2 else 0,
+                "received_return_from_n4": received_return_values[3] if len(received_return_values) > 3 else 0,
+                "received_send_from_n1": received_send_values[0] if len(received_send_values) > 0 else 0,
+                "received_send_from_n2": received_send_values[1] if len(received_send_values) > 1 else 0,
+                "received_send_from_n3": received_send_values[2] if len(received_send_values) > 2 else 0,
+                "received_send_from_n4": received_send_values[3] if len(received_send_values) > 3 else 0,
+                "returned_to_n1": returned_values[0] if len(returned_values) > 0 else 0,
+                "returned_to_n2": returned_values[1] if len(returned_values) > 1 else 0,
+                "returned_to_n3": returned_values[2] if len(returned_values) > 2 else 0,
+                "returned_to_n4": returned_values[3] if len(returned_values) > 3 else 0,
+                "sent_total": agent.total_sent,
+                "received_return_total": agent.total_received_return,
+                "received_send_total": agent.total_received_as_trustee,
+                "returned_total": agent.total_returned,
+                "trustor_payoff": agent.trustor_payoff,
+                "trustee_payoff": agent.trustee_payoff,
+                "round_payoff": agent.round_payoff,
+                "accumulate_payoff": agent.balance,
+            }
+            self.all_data.append(row)
+
     def reset_record(self):
         """重置记录"""
         pass
+
