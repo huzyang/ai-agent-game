@@ -259,7 +259,7 @@ class GameModel(mesa.Model):
                 content_str = "ERROR"
                 reasoning_str = "ERROR"
             else:
-                send_amounts = self.extract_decisions_regex(focal_agent_response.content if hasattr(focal_agent_response, 'content') else str(focal_agent_response))
+                send_amounts = self.extract_decisions_regex(focal_agent_response.content if hasattr(focal_agent_response, 'content') else str(focal_agent_response), focal_agent, player_type)
                 content_str = str(focal_agent_response.content)
                 reasoning_str = str(focal_agent_response.reasoning_content) if hasattr(focal_agent_response, 'reasoning_content') else ""
 
@@ -456,7 +456,8 @@ class GameModel(mesa.Model):
 
             logger.debug(f"Agent {i} 收到邻居返还: {returned_from_neighbors}")
 
-    def extract_decisions_regex(self, answer):
+    def extract_decisions_regex(self, answer, agent, player_type):
+        result = {}
         # 清空两边空白、统一格式
         answer = answer.strip().strip('"').strip()
 
@@ -466,48 +467,52 @@ class GameModel(mesa.Model):
 
         if dict_match:
             content = dict_match.group(1)
-            pairs = re.findall(r"(\d+)\s*:\s*(\d+)", content)
+            pairs = re.findall(r"(\d+)\s*:\s*(\d+(?:\.\d+)?)", content)
             if pairs:
-                result = {int(k): min(int(v), 5) for k, v in pairs}
+                result = {int(k): float(v) for k, v in pairs}
                 logger.debug(f"提取发送金额决策: {result}")
-                return result
+                return self._decisions_check(result, agent, player_type)
 
-        # 2. 匹配：统一发送固定金额给所有邻居（格式3）
-        single_pattern = r"send\s*(\d+)(?:\s*tokens?)?\s*to\s*each\s*neighbor"
-        single_match = re.search(single_pattern, answer, re.IGNORECASE)
-
-        if single_match:
-            amount = min(int(single_match.group(1)), 5)
-            # 固定邻居列表：2、5、8、11
-            result = {2: amount, 5: amount, 8: amount, 11: amount}
-            logger.debug(f"提取统一发送金额决策: {result}")
-            return result
+        # 2. 尝试提取任意单个数字（通用匹配）
+        all_numbers = re.findall(r'\b(\d+(?:\.\d+)?)\b', answer)
+        if len(all_numbers) == 1:
+            value = float(all_numbers[0])
+            result = {int(nid): value / 4 for nid in agent.neighbor_ids}
+            return self._decisions_check(result, agent, player_type)
 
         # 3. 匹配：分别发送给不同邻居（格式4）
-        multi_pattern = r"(\d+)\s*tokens?\s*to\s*neighbor\s*(\d+)"
+        multi_pattern = r"(\d+(?:\.\d+)?)\s*tokens?\s*to\s*neighbor\s*(\d+)"
         multi_matches = re.findall(multi_pattern, answer, re.IGNORECASE)
 
         if multi_matches:
             result = {}
             for amount, neighbor_id in multi_matches:
-                result[int(neighbor_id)] = min(int(amount), 5)
+                result[int(neighbor_id)] = float(amount)
             logger.debug(f"提取分开发送金额决策: {result}")
-            return result
+            return self._decisions_check(result, agent, player_type)
 
         # 所有格式都不匹配
         logger.warning(f"未匹配到任何发送金额格式，原始响应: {answer[:100]}")
-        return self._extract_fallback(answer)
+        return self._decisions_check(result, agent, player_type)
 
-    def _extract_fallback(self, answer):
-        pairs = re.findall(r"(\d+)\s*:\s*(\d+)", answer)
-        if not pairs:
-            return {}
+    def _decisions_check(self, result, agent, player_type):
+        if not result:
+            result = {}
 
-        result = {}
-        for neighbor_id, amount in pairs:
-            nid, amt = int(neighbor_id), int(amount)
-            if 0 <= amt <= 5:
-                result[nid] = amt
+        total_amount = sum(result.values())
+
+        if player_type == "trustor":
+            max_total = 5
+            default_per_neighbor = 1.25
+        elif player_type == "trustee":
+            max_total = 3 * sum(agent.received_from_neighbors[-1].values())
+            default_per_neighbor = max_total / 4
+        else:
+            return result
+
+        if total_amount > max_total or result == {}:
+            logger.warning(f"{player_type.capitalize()}发送总额{total_amount}超过限制{max_total}，调整为每邻居{default_per_neighbor}")
+            return {int(nid): default_per_neighbor for nid in agent.neighbor_ids}
 
         return result
 
@@ -541,10 +546,10 @@ class GameModel(mesa.Model):
 
         if total_records > 0:
             # 基础统计
-            avg_sent = sum(row['sent_total'] for row in self.all_data) / total_records
-            avg_received_return = sum(row['received_return_total'] for row in self.all_data) / total_records
-            avg_received_send = sum(row['received_send_total'] for row in self.all_data) / total_records
-            avg_returned = sum(row['returned_total'] for row in self.all_data) / total_records
+            avg_sent = sum(row['total_sent'] for row in self.all_data) / total_records
+            avg_received_return = sum(row['total_received_return'] for row in self.all_data) / total_records
+            avg_received_send = sum(row['total_received_send'] for row in self.all_data) / total_records
+            avg_returned = sum(row['total_returned'] for row in self.all_data) / total_records
 
             # 收益统计
             avg_trustor_payoff = sum(row['trustor_payoff'] for row in self.all_data) / total_records
@@ -555,8 +560,8 @@ class GameModel(mesa.Model):
             free_agents_data = [row for row in self.all_data if row['agent_type'] == 'free']
             constrained_agents_data = [row for row in self.all_data if row['agent_type'] == 'constrained']
 
-            avg_sent_free = sum(row['sent_total'] for row in free_agents_data) / len(free_agents_data) if free_agents_data else 0
-            avg_sent_constrained = sum(row['sent_total'] for row in constrained_agents_data) / len(constrained_agents_data) if constrained_agents_data else 0
+            avg_sent_free = sum(row['total_sent'] for row in free_agents_data) / len(free_agents_data) if free_agents_data else 0
+            avg_sent_constrained = sum(row['total_sent'] for row in constrained_agents_data) / len(constrained_agents_data) if constrained_agents_data else 0
 
             avg_payoff_free = sum(row['round_payoff'] for row in free_agents_data) / len(free_agents_data) if free_agents_data else 0
             avg_payoff_constrained = sum(row['round_payoff'] for row in constrained_agents_data) / len(constrained_agents_data) if constrained_agents_data else 0
@@ -660,22 +665,26 @@ class GameModel(mesa.Model):
                 "sent_to_n2": sent_values[1] if len(sent_values) > 1 else 0,
                 "sent_to_n3": sent_values[2] if len(sent_values) > 2 else 0,
                 "sent_to_n4": sent_values[3] if len(sent_values) > 3 else 0,
+                "total_sent": agent.total_sent,
+
                 "received_return_from_n1": received_return_values[0] if len(received_return_values) > 0 else 0,
                 "received_return_from_n2": received_return_values[1] if len(received_return_values) > 1 else 0,
                 "received_return_from_n3": received_return_values[2] if len(received_return_values) > 2 else 0,
                 "received_return_from_n4": received_return_values[3] if len(received_return_values) > 3 else 0,
+                "total_received_return": agent.total_received_return,
+
                 "received_send_from_n1": received_send_values[0] if len(received_send_values) > 0 else 0,
                 "received_send_from_n2": received_send_values[1] if len(received_send_values) > 1 else 0,
                 "received_send_from_n3": received_send_values[2] if len(received_send_values) > 2 else 0,
                 "received_send_from_n4": received_send_values[3] if len(received_send_values) > 3 else 0,
+                "total_received_send": agent.total_received_as_trustee,
+
                 "returned_to_n1": returned_values[0] if len(returned_values) > 0 else 0,
                 "returned_to_n2": returned_values[1] if len(returned_values) > 1 else 0,
                 "returned_to_n3": returned_values[2] if len(returned_values) > 2 else 0,
                 "returned_to_n4": returned_values[3] if len(returned_values) > 3 else 0,
-                "sent_total": agent.total_sent,
-                "received_return_total": agent.total_received_return,
-                "received_send_total": agent.total_received_as_trustee,
-                "returned_total": agent.total_returned,
+                "total_returned": agent.total_returned,
+
                 "trustor_payoff": agent.trustor_payoff,
                 "trustee_payoff": agent.trustee_payoff,
                 "round_payoff": agent.round_payoff,
