@@ -1,7 +1,7 @@
 """
 analysis.py
 信任博弈实验数据分析模块
-功能：计算核心指标、行为聚类、统计检验、生成论文风格图表
+功能：计算核心指标（基尼系数等）、存储绘图数据到Excel、生成论文风格图表
 """
 
 import os
@@ -9,13 +9,9 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-from sklearn.cluster import KMeans
-from sklearn.preprocessing import StandardScaler
-from scipy.stats import ttest_ind
+from src.utils import CommonUtils
 from typing import List, Dict, Optional
 import logging
-
-from src.utils import CommonUtils
 
 logger = logging.getLogger(__name__)
 
@@ -27,8 +23,8 @@ plt.rcParams['axes.unicode_minus'] = False
 class TrustGameAnalyzer:
     """
     信任博弈实验分析器
-    支持加载多个CSV文件（不同 proportion 或重复实验），计算核心指标，
-    进行行为表型聚类和统计检验，并生成论文风格的可视化图表。
+    支持加载多个CSV文件（新格式），计算基尼系数等核心指标，
+    存储绘图数据到Excel，并生成论文风格的可视化图表。
     """
 
     # 论文图表风格设置
@@ -50,11 +46,8 @@ class TrustGameAnalyzer:
     def __init__(self, csv_paths: List[str]):
         """
         初始化分析器，加载并合并多个CSV文件
-        Args:
-            csv_paths: CSV文件路径列表，每个文件应包含字段：
-                run_id, iteration, round, num_agents, proportion,
-                investor_agent_id, investor_agent_type, trustee_neighbor_id,
-                invested_amount, returned_amount, investor_agent_payoff, trustee_agent_payoff
+        支持新格式字段：run_id, iteration, round, num_agents, proportion,
+        agent_id, agent_type, 以及各类收益字段。
         """
         self.dfs = []
         for path in csv_paths:
@@ -71,12 +64,16 @@ class TrustGameAnalyzer:
         self.df = pd.concat(self.dfs, ignore_index=True)
 
         # 确保数值列类型正确
-        numeric_cols = ['invested_amount', 'returned_amount', 'investor_agent_payoff', 'trustee_agent_payoff']
+        numeric_cols = ['run_id', 'iteration', 'round', 'num_agents', 'proportion', 'agent_id', 'agent_type',
+                        'neighbor_1_id', 'neighbor_2_id', 'neighbor_3_id', 'neighbor_4_id',
+                        'sent_to_n1', 'sent_to_n2', 'sent_to_n3', 'sent_to_n4', 'total_sent',
+                        'received_return_from_n1', 'received_return_from_n2', 'received_return_from_n3', 'received_return_from_n4', 'total_received_return',
+                        'received_send_from_n1', 'received_send_from_n2', 'received_send_from_n3', 'received_send_from_n4', 'total_received_send',
+                        'returned_to_n1', 'returned_to_n2', 'returned_to_n3', 'returned_to_n4', 'total_returned',
+                        'trustor_payoff', 'trustee_payoff', 'round_payoff', 'accumulate_payoff']
         for col in numeric_cols:
-            self.df[col] = pd.to_numeric(self.df[col], errors='coerce').fillna(0)
-
-        # 添加辅助列：每笔交互的总收益（投资者+受托者）
-        # self.df['interaction_total_payoff'] = self.df['investor_agent_payoff'] + self.df['trustee_agent_payoff']
+            if col in self.df.columns:
+                self.df[col] = pd.to_numeric(self.df[col], errors='coerce').fillna(0)
 
         logger.info(f"数据合并完成，总行数: {len(self.df)}，包含比例: {sorted(self.df['proportion'].unique())}")
 
@@ -100,533 +97,196 @@ class TrustGameAnalyzer:
     def compute_core_metrics(self, proportion: Optional[float] = None) -> Dict:
         """
         计算核心指标，可指定 proportion 筛选
-        Returns:
-            字典包含:
-                - mean_invested: 平均委托金额
-                - mean_returned: 平均返还金额
-                - total_payoff_sum: 群体总收益（所有交互的投资者+受托者收益之和）
-                - agent_total_payoffs: 每个智能体的累计收益（Series）
-                - gini: 基尼系数
-                - round_metrics: 按轮次聚合的DataFrame（平均委托、返还、群体总收益）
+        返回:
+            - mean_invested: 平均委托金额 (total_sent / 4)
+            - mean_returned: 平均返还金额 (total_returned / 4)
+            - total_payoff_sum: 群体总收益（单轮总收益之和，或累加收益）
+            - agent_final_payoffs: 每个智能体的最终累计收益（最后一轮的 accumulate_payoff）
+            - gini: 基尼系数
+            - round_metrics: 按轮次聚合的DataFrame（平均委托、返还、群体总收益）
         """
         df = self.df if proportion is None else self.df[self.df['proportion'] == proportion]
         if len(df) == 0:
             raise ValueError(f"未找到 proportion={proportion} 的数据")
 
         # 平均委托/返还金额（按交互记录）
-        mean_invested = df['invested_amount'].mean()
-        mean_returned = df['returned_amount'].mean()
+        # total_sent 是发送给4个邻居的总和，取平均每次发送
+        mean_invested = df['total_sent'].mean() / 4
+        # total_returned 是从4个邻居收到的返还总和，取平均每次返还
+        mean_returned = df['total_returned'].mean() / 4
 
-        # 群体总收益
-        total_payoff_sum = df['interaction_total_payoff'].sum()
+        # 群体总收益：所有 agent 在最后一轮的 accumulate_payoff 之和
+        # 每个 agent 的最终累计收益（取每个 agent 的最大 round 对应的 accumulate_payoff）
+        final_payoffs = df.sort_values('round').groupby('agent_id')['accumulate_payoff'].last()
+        total_payoff_sum = final_payoffs.sum()
 
-        # 个人累计收益
-        # 作为投资者时的收益
-        investor_sum = df.groupby('investor_agent_id')['investor_agent_payoff'].sum()
-        # 作为受托者时的收益
-        trustee_sum = df.groupby('trustee_neighbor_id')['trustee_agent_payoff'].sum()
-        agent_total = investor_sum.add(trustee_sum, fill_value=0).sort_index()
-        gini = self.gini_coefficient(agent_total.values)
+        # 基尼系数基于最终累计收益
+        gini = self.gini_coefficient(final_payoffs.values)
 
-        # 按轮次聚合
+        # 按轮次聚合：平均委托、平均返还、每轮所有 agent 的 round_payoff 之和（群体单轮收益）
         round_metrics = df.groupby('round').agg(
-            mean_invested=('invested_amount', 'mean'),
-            mean_returned=('returned_amount', 'mean'),
-            total_payoff=('interaction_total_payoff', 'sum')
+            mean_invested=('total_sent', lambda x: x.mean() / 4),
+            mean_returned=('total_returned', lambda x: x.mean() / 4),
+            total_payoff=('round_payoff', 'sum')
         ).reset_index()
 
         return {
             'mean_invested': mean_invested,
             'mean_returned': mean_returned,
             'total_payoff_sum': total_payoff_sum,
-            'agent_total_payoffs': agent_total,
+            'agent_final_payoffs': final_payoffs,
             'gini': gini,
             'round_metrics': round_metrics,
         }
 
-    def behavior_clustering(self, proportion: Optional[float] = None, n_clusters: int = 3) -> pd.DataFrame:
+    def export_plot_data_to_excel(self, output_excel_path: str):
         """
-        行为表型聚类（基于平均委托金额和平均返还金额）
-        输出三类：prosocial（亲社会）, neutral（中性）, antisocial（反社会）
-        分类依据：聚类后按平均委托金额排序，高 -> prosocial，中 -> neutral，低 -> antisocial
-        Returns:
-            DataFrame 包含每个 investor_agent_id 及其聚类标签、特征值、表型
+        将绘图所需的核心数据存储到 Excel 的一个工作簿中。
+        包含多个工作表：
+            - summary: 各比例下的平均委托、返还、基尼系数、总收益
+            - round_mean_invested: 各比例每轮平均委托金额（透视表）
+            - round_mean_returned: 各比例每轮平均返还金额（透视表）
+            - round_total_payoff: 各比例每轮群体总收益（透视表）
+            - gini_by_proportion: 各比例基尼系数
         """
-        df = self.df if proportion is None else self.df[self.df['proportion'] == proportion]
-        if len(df) == 0:
-            raise ValueError(f"未找到 proportion={proportion} 的数据")
-
-        # 提取每个 agent 作为投资者的平均行为
-        agent_investor = df.groupby('investor_agent_id').agg(
-            mean_invested=('invested_amount', 'mean'),
-            mean_returned=('returned_amount', 'mean')
-        ).reset_index()
-
-        # 标准化
-        features = agent_investor[['mean_invested', 'mean_returned']].values
-        scaler = StandardScaler()
-        features_scaled = scaler.fit_transform(features)
-
-        # K-means 聚类
-        kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
-        labels = kmeans.fit_predict(features_scaled)
-        agent_investor['cluster'] = labels
-
-        # 根据平均委托金额排序确定标签含义
-        cluster_order = agent_investor.groupby('cluster')['mean_invested'].mean().sort_values().index.tolist()
-        if len(cluster_order) == 3:
-            type_map = {
-                cluster_order[0]: 'antisocial',
-                cluster_order[1]: 'neutral',
-                cluster_order[2]: 'prosocial'
-            }
-        elif len(cluster_order) == 2:
-            type_map = {cluster_order[0]: 'antisocial', cluster_order[1]: 'prosocial'}
-        else:
-            type_map = {c: f'type_{c}' for c in cluster_order}
-
-        agent_investor['phenotype'] = agent_investor['cluster'].map(type_map)
-        logger.info(f"行为聚类完成，各类别计数:\n{agent_investor['phenotype'].value_counts()}")
-        return agent_investor
-
-    def t_test_analysis(self, group1_proportion: float, group2_proportion: float, metric: str = 'invested_amount') -> Dict:
-        """
-        对两组不同 proportion 的实验进行独立样本 t 检验 (Welch's t-test)
-        Args:
-            group1_proportion: 第一组的自由玩家比例
-            group2_proportion: 第二组的自由玩家比例
-            metric: 比较的指标，可选 'invested_amount', 'returned_amount', 'investor_agent_payoff'
-        Returns:
-            包含 t 统计量、p 值、均值等的字典
-        """
-        df1 = self.df[self.df['proportion'] == group1_proportion]
-        df2 = self.df[self.df['proportion'] == group2_proportion]
-        if len(df1) == 0 or len(df2) == 0:
-            raise ValueError("指定的比例在数据中不存在")
-
-        if metric == 'invested_amount':
-            vals1 = df1.groupby('investor_agent_id')['invested_amount'].mean().dropna()
-            vals2 = df2.groupby('investor_agent_id')['invested_amount'].mean().dropna()
-        elif metric == 'returned_amount':
-            vals1 = df1.groupby('investor_agent_id')['returned_amount'].mean().dropna()
-            vals2 = df2.groupby('investor_agent_id')['returned_amount'].mean().dropna()
-        elif metric == 'investor_agent_payoff':
-            vals1 = df1.groupby('investor_agent_id')['investor_agent_payoff'].sum().dropna()
-            vals2 = df2.groupby('investor_agent_id')['investor_agent_payoff'].sum().dropna()
-        else:
-            raise ValueError("metric 必须是 'invested_amount', 'returned_amount' 或 'investor_agent_payoff'")
-
-        t_stat, p_val = ttest_ind(vals1, vals2, equal_var=False)
-        return {
-            't_statistic': t_stat,
-            'p_value': p_val,
-            'mean_group1': vals1.mean(),
-            'mean_group2': vals2.mean(),
-            'metric': metric,
-            'group1_proportion': group1_proportion,
-            'group2_proportion': group2_proportion
-        }
-
-    def generate_report(self, output_path: str, proportions: List[float] = None):
-        """
-        生成文本分析报告
-        Args:
-            output_path: 报告保存路径
-            proportions: 要分析的 proportion 列表，默认为数据中所有的唯一比例
-        """
-        if proportions is None:
-            proportions = sorted(self.df['proportion'].unique())
-
-        with open(output_path, 'w', encoding='utf-8') as f:
-            f.write("=" * 70 + "\n")
-            f.write("信任博弈实验分析报告\n")
-            f.write("=" * 70 + "\n\n")
-
-            for prop in proportions:
-                f.write(f"【自由玩家比例: {prop:.0%}】\n")
-                metrics = self.compute_core_metrics(proportion=prop)
-                f.write(f"  平均委托金额: {metrics['mean_invested']:.3f}\n")
-                f.write(f"  平均返还金额: {metrics['mean_returned']:.3f}\n")
-                f.write(f"  群体总收益: {metrics['total_payoff_sum']:.2f}\n")
-                f.write(f"  基尼系数: {metrics['gini']:.4f}\n\n")
-
-            if len(proportions) >= 2:
-                f.write("【统计检验结果】\n")
-                if 0.0 in proportions and 1.0 in proportions:
-                    res = self.t_test_analysis(0.0, 1.0, metric='invested_amount')
-                    f.write(f"  委托金额 t检验 (0%自由 vs 100%自由): t={res['t_statistic']:.3f}, p={res['p_value']:.4f}\n")
-                    res2 = self.t_test_analysis(0.0, 1.0, metric='returned_amount')
-                    f.write(f"  返还金额 t检验 (0%自由 vs 100%自由): t={res2['t_statistic']:.3f}, p={res2['p_value']:.4f}\n")
-
-            f.write("\n【行为表型聚类结果】\n")
-            for prop in proportions:
-                clustering = self.behavior_clustering(proportion=prop, n_clusters=3)
-                counts = clustering['phenotype'].value_counts()
-                f.write(f"  比例 {prop:.0%}:\n")
-                for pheno, cnt in counts.items():
-                    f.write(f"    {pheno}: {cnt} 人 ({cnt/len(clustering)*100:.1f}%)\n")
-                f.write("\n")
-
-        logger.info(f"分析报告已保存至: {output_path}")
-
-    def plot_returned_amount_with_effect_size(self, output_path: str, reference_proportion: float = 0.0):
-        """
-        生成与参考图片风格一致的组合图：
-          上半部分：返还金额的箱线图 + 均值点图（含置信区间）
-          下半部分：效应量（相对于参考比例）点图（含置信区间）
-
-        Args:
-            output_path: 图像保存路径（如 .png 或 .pdf）
-            reference_proportion: 作为参考的自由玩家比例（默认 0.0）
-        """
-        # 获取所有比例（排序）
         proportions = sorted(self.df['proportion'].unique())
-        # 确保参考比例在列表中
-        if reference_proportion not in proportions:
-            raise ValueError(f"参考比例 {reference_proportion} 不在数据中")
+        summary_data = []
+        round_invested_pivot = None
+        round_returned_pivot = None
+        round_payoff_pivot = None
+        gini_list = []
 
-        # 1. 按比例 + agent 聚合平均返还金额
-        # 注意：每个 agent 在同一个比例下可能有多个轮次和多个邻居，取平均作为该 agent 的代表值
-        agent_avg_return = self.df.groupby(['proportion', 'investor_agent_id'])['returned_amount'].mean().reset_index()
+        for prop in proportions:
+            metrics = self.compute_core_metrics(proportion=prop)
+            summary_data.append({
+                'proportion': prop,
+                'mean_invested': metrics['mean_invested'],
+                'mean_returned': metrics['mean_returned'],
+                'total_payoff_sum': metrics['total_payoff_sum'],
+                'gini': metrics['gini']
+            })
+            gini_list.append({'proportion': prop, 'gini': metrics['gini']})
 
-        # 存储每个比例下的所有个体平均返还金额（用于箱线图）
-        data_for_box = []
-        for p in proportions:
-            vals = agent_avg_return[agent_avg_return['proportion'] == p]['returned_amount'].values
-            data_for_box.append(vals)
-
-        # 2. 计算每个比例的总体均值及 95% 置信区间（基于个体平均）
-        means = []
-        cis = []
-        for p in proportions:
-            vals = agent_avg_return[agent_avg_return['proportion'] == p]['returned_amount'].values
-            mean_val = np.mean(vals)
-            sem = np.std(vals, ddof=1) / np.sqrt(len(vals))
-            ci = sem * 1.96  # 近似 95% CI，也可用 t 分布
-            means.append(mean_val)
-            cis.append(ci)
-
-        # 3. 效应量：各比例相对于参考比例的均值差（差值）及其 95% CI
-        # 获取参考组的个体均值
-        ref_vals = agent_avg_return[agent_avg_return['proportion'] == reference_proportion]['returned_amount'].values
-        ref_mean = np.mean(ref_vals)
-        ref_sem = np.std(ref_vals, ddof=1) / np.sqrt(len(ref_vals))
-
-        effect_sizes = []
-        effect_cis = []
-        for p in proportions:
-            if p == reference_proportion:
-                effect_sizes.append(0.0)
-                effect_cis.append(0.0)
+            # 构建轮次透视表
+            round_df = metrics['round_metrics']
+            round_df['proportion'] = prop
+            # 合并各比例的轮次数据
+            if round_invested_pivot is None:
+                round_invested_pivot = round_df[['round', 'proportion', 'mean_invested']]
+                round_returned_pivot = round_df[['round', 'proportion', 'mean_returned']]
+                round_payoff_pivot = round_df[['round', 'proportion', 'total_payoff']]
             else:
-                vals = agent_avg_return[agent_avg_return['proportion'] == p]['returned_amount'].values
-                mean_diff = np.mean(vals) - ref_mean
-                # 两组独立样本的差值的标准误
-                sem_diff = np.sqrt((np.std(vals, ddof=1) ** 2 / len(vals)) +
-                                   (np.std(ref_vals, ddof=1) ** 2 / len(ref_vals)))
-                ci_diff = sem_diff * 1.96
-                effect_sizes.append(mean_diff)
-                effect_cis.append(ci_diff)
+                round_invested_pivot = pd.concat([round_invested_pivot, round_df[['round', 'proportion', 'mean_invested']]])
+                round_returned_pivot = pd.concat([round_returned_pivot, round_df[['round', 'proportion', 'mean_returned']]])
+                round_payoff_pivot = pd.concat([round_payoff_pivot, round_df[['round', 'proportion', 'total_payoff']]])
 
-        # 4. 创建画布和子图
-        fig, (ax_top, ax_bottom) = plt.subplots(2, 1, figsize=(8, 8),
-                                                sharex=True,
-                                                gridspec_kw={'height_ratios': [2, 1],
-                                                             'hspace': 0.05})
+        # 透视表：行=round，列=proportion，值=指标
+        if round_invested_pivot is not None:
+            round_invested_table = round_invested_pivot.pivot(index='round', columns='proportion', values='mean_invested')
+            round_returned_table = round_returned_pivot.pivot(index='round', columns='proportion', values='mean_returned')
+            round_payoff_table = round_payoff_pivot.pivot(index='round', columns='proportion', values='total_payoff')
+            # 重命名列
+            round_invested_table.columns = [f'proportion={c}' for c in round_invested_table.columns]
+            round_returned_table.columns = [f'proportion={c}' for c in round_returned_table.columns]
+            round_payoff_table.columns = [f'proportion={c}' for c in round_payoff_table.columns]
+            round_invested_table.reset_index(inplace=True)
+            round_returned_table.reset_index(inplace=True)
+            round_payoff_table.reset_index(inplace=True)
 
-        # 颜色定义
-        olive_green = '#6B8E23'  # 橄榄绿
-        reddish_brown = '#A0522D'  # 红棕色
+        summary_df = pd.DataFrame(summary_data)
+        gini_df = pd.DataFrame(gini_list)
 
-        # ========== 上半部分：箱线图 + 均值点图 ==========
-        # 箱线图
-        box = ax_top.boxplot(data_for_box, positions=proportions, widths=0.6,
-                             patch_artist=True,
-                             boxprops=dict(facecolor=olive_green, color='black', linewidth=1.2),
-                             whiskerprops=dict(color='black', linewidth=1.2),
-                             capprops=dict(color='black', linewidth=1.2),
-                             medianprops=dict(color='black', linewidth=1.5),
-                             flierprops=dict(marker='o', markerfacecolor='gray', markersize=3, alpha=0.5))
-        # 添加均值点图（红棕色）
-        ax_top.errorbar(proportions, means, yerr=cis, fmt='o', color=reddish_brown,
-                        capsize=5, capthick=1.5, markersize=8, label='Mean ± 95% CI')
-        ax_top.set_ylabel('Returned amount', fontsize=12)
-        ax_top.set_title('', fontsize=14)
-        ax_top.legend(loc='upper right', frameon=False)
-        ax_top.grid(axis='y', linestyle='--', alpha=0.5)
-
-        # ========== 下半部分：效应量点图 ==========
-        # 只显示非参考比例的点
-        effect_props = [p for p in proportions if p != reference_proportion]
-        effect_vals = [effect_sizes[i] for i, p in enumerate(proportions) if p != reference_proportion]
-        effect_errs = [effect_cis[i] for i, p in enumerate(proportions) if p != reference_proportion]
-
-        ax_bottom.errorbar(effect_props, effect_vals, yerr=effect_errs, fmt='o',
-                           color=reddish_brown, capsize=5, capthick=1.5, markersize=8)
-        # 添加参考线 y=0
-        ax_bottom.axhline(y=0, color='black', linestyle='--', linewidth=1)
-        ax_bottom.set_ylabel('Effect size\n(difference from 0% free)', fontsize=12)
-        ax_bottom.set_xlabel('Fraction of free players', fontsize=12)
-        ax_bottom.set_xticks(proportions)
-        ax_bottom.set_xticklabels([f'{int(p * 100)}%' for p in proportions])
-        ax_bottom.grid(axis='y', linestyle='--', alpha=0.5)
-
-        # 设置纵轴范围（可选）
-        all_return_vals = agent_avg_return['returned_amount'].values
-        y_top_max = np.percentile(all_return_vals, 95) + 1
-        y_top_min = max(0, np.percentile(all_return_vals, 5) - 1)
-        ax_top.set_ylim(y_top_min, y_top_max)
-
-        # 效应量纵轴自动调整
-        all_effects = effect_vals
-        if all_effects:
-            y_bottom_max = max(all_effects) + max(effect_errs) * 1.2
-            y_bottom_min = min(all_effects) - max(effect_errs) * 1.2
-            ax_bottom.set_ylim(y_bottom_min, y_bottom_max)
-
-        plt.tight_layout()
-        plt.savefig(output_path, dpi=150, bbox_inches='tight')
-        plt.close()
-        logger.info(f"组合图已保存至: {output_path}")
-
-    def export_pivoted_metrics_to_excel(self, output_excel_path: str):
-        """
-        计算每一轮的平均委托金额、平均返还金额、群体总收益，
-        以及每个代理各比例下所有轮的平均委托金额，
-        按 proportion 分组，分别写入四个 Excel 工作表。
-
-        输出工作表：
-            - round_mean_invested: 各比例每轮的平均委托金额
-            - round_mean_returned: 各比例每轮的平均返还金额
-            - total_payoff: 各比例每轮的群体总收益（interaction_total_payoff 之和）
-            - agent_mean_invested: 每个代理各比例下所有轮的平均委托金额
-
-        参数:
-            output_excel_path: 输出 Excel 文件路径
-        """
-        proportions = sorted(self.df['proportion'].unique())
-
-        # 1. 平均委托金额（按轮次、比例聚合）
-        round_mean_invested = self.df.groupby(['round', 'proportion'])['invested_amount'].mean().reset_index()
-        round_mean_invested_pivot = round_mean_invested.pivot(index='round', columns='proportion', values='invested_amount')
-        round_mean_invested_pivot.columns = [f'proportion={c}' for c in round_mean_invested_pivot.columns]
-        round_mean_invested_pivot.reset_index(inplace=True)
-
-        # 2. 平均返还金额
-        round_mean_returned = self.df.groupby(['round', 'proportion'])['returned_amount'].mean().reset_index()
-        round_mean_returned_pivot = round_mean_returned.pivot(index='round', columns='proportion', values='returned_amount')
-        round_mean_returned_pivot.columns = [f'proportion={c}' for c in round_mean_returned_pivot.columns]
-        round_mean_returned_pivot.reset_index(inplace=True)
-
-        # 3. 群体总收益（每轮所有交互的收益之和）
-        total_payoff = self.df.groupby(['round', 'proportion'])['interaction_total_payoff'].sum().reset_index()
-        total_payoff_pivot = total_payoff.pivot(index='round', columns='proportion', values='interaction_total_payoff')
-        total_payoff_pivot.columns = [f'proportion={c}' for c in total_payoff_pivot.columns]
-        total_payoff_pivot.reset_index(inplace=True)
-
-        # 4. 每个代理在各比例下的平均委托金额（所有轮）
-        agent_mean_invested = self.df.groupby(['investor_agent_id', 'proportion'])['invested_amount'].mean().reset_index()
-        agent_mean_invested_pivot = agent_mean_invested.pivot(index='investor_agent_id', columns='proportion', values='invested_amount')
-        agent_mean_invested_pivot.columns = [f'proportion={c}' for c in agent_mean_invested_pivot.columns]
-        agent_mean_invested_pivot.reset_index(inplace=True)
-
-        # 写入 Excel 文件
+        # 写入 Excel
         with pd.ExcelWriter(output_excel_path, engine='openpyxl') as writer:
-            round_mean_invested_pivot.to_excel(writer, sheet_name='round_mean_invested', index=False)
-            round_mean_returned_pivot.to_excel(writer, sheet_name='round_mean_returned', index=False)
-            total_payoff_pivot.to_excel(writer, sheet_name='total_payoff', index=False)
-            agent_mean_invested_pivot.to_excel(writer, sheet_name='agent_mean_invested', index=False)
+            summary_df.to_excel(writer, sheet_name='summary', index=False)
+            if round_invested_table is not None:
+                round_invested_table.to_excel(writer, sheet_name='round_mean_invested', index=False)
+                round_returned_table.to_excel(writer, sheet_name='round_mean_returned', index=False)
+                round_payoff_table.to_excel(writer, sheet_name='round_total_payoff', index=False)
+            gini_df.to_excel(writer, sheet_name='gini_by_proportion', index=False)
 
-        logger.info(f"每轮聚合指标及代理平均委托金额已导出至: {output_excel_path}")
+        logger.info(f"绘图数据已导出至: {output_excel_path}")
+        return output_excel_path
 
-    def plot_figures(self, output_dir: str, proportions: List[float] = None):
+    def plot_figures(self, output_dir: str):
         """
         生成论文同款图表：
-        - 图1: 委托/返还金额随轮次变化（不同比例对比）
-        - 图2: 基尼系数条形图
-        - 图3: 行为表型分布堆叠柱状图
-        - 图4: 个人收益分布箱线图
+        - 图1: 委托金额随轮次变化（不同比例对比）
+        - 图2: 返还金额随轮次变化
+        - 图3: 基尼系数条形图
+        - 图4: 个人最终累计收益分布箱线图
         """
-        if proportions is None:
-            proportions = sorted(self.df['proportion'].unique())
-
+        proportions = sorted(self.df['proportion'].unique())
         os.makedirs(output_dir, exist_ok=True)
 
-        # 使用更专业的配色方案
-        colors = sns.color_palette("viridis", n_colors=len(proportions))
-        prop_labels = [f"{int(p * 100)}%" for p in proportions]
+        colors = sns.color_palette("Blues_d", n_colors=len(proportions))
+        prop_labels = [f"{int(p*100)}%" for p in proportions]
 
-        # 定义统一的图表样式参数
-        plot_params = {
-            'marker_size': 6,
-            'line_width': 2,
-            'alpha': 0.85,
-            'grid_alpha': 0.3,
-            'font_size_title': 14,
-            'font_size_label': 12,
-            'font_size_legend': 10
-        }
-
-        # 图1：平均委托金额随轮次变化
-        fig, ax = plt.subplots(figsize=(10, 6))
+        # 图1：委托金额随轮次变化
+        plt.figure(figsize=(10, 6))
         for i, prop in enumerate(proportions):
             metrics = self.compute_core_metrics(proportion=prop)
             round_df = metrics['round_metrics']
-            ax.plot(round_df['round'], round_df['mean_invested'],
-                    marker='o', markersize=plot_params['marker_size'],
-                    linewidth=plot_params['line_width'],
-                    color=colors[i], label=f"自由玩家 {prop_labels[i]}",
-                    alpha=plot_params['alpha'])
-        ax.set_xlabel("轮次", fontsize=plot_params['font_size_label'], fontweight='bold')
-        ax.set_ylabel("平均委托金额", fontsize=plot_params['font_size_label'], fontweight='bold')
-        ax.set_title("不同自由玩家比例下的平均委托金额演化",
-                     fontsize=plot_params['font_size_title'], fontweight='bold', pad=15)
-        ax.legend(title="实验组", loc='best', frameon=True, fancybox=True,
-                  shadow=True, fontsize=plot_params['font_size_legend'])
-        ax.grid(True, linestyle='--', alpha=plot_params['grid_alpha'], linewidth=0.8)
-        ax.spines['top'].set_visible(False)
-        ax.spines['right'].set_visible(False)
+            plt.plot(round_df['round'], round_df['mean_invested'],
+                     marker='o', markersize=4, linewidth=1.5,
+                     color=colors[i], label=f"自由{prop_labels[i]}")
+        plt.xlabel("轮次")
+        plt.ylabel("平均委托金额")
+        plt.title("不同自由玩家比例下的平均委托金额演化")
+        plt.legend()
         plt.tight_layout()
-        plt.savefig(os.path.join(output_dir, "invested_over_rounds.png"), dpi=150, bbox_inches='tight')
+        plt.savefig(os.path.join(output_dir, "invested_over_rounds.png"), dpi=150)
         plt.close()
 
-        # 图1b：平均返还金额随轮次变化
-        fig, ax = plt.subplots(figsize=(10, 6))
+        # 图2：返还金额随轮次变化
+        plt.figure(figsize=(10, 6))
         for i, prop in enumerate(proportions):
             metrics = self.compute_core_metrics(proportion=prop)
             round_df = metrics['round_metrics']
-            ax.plot(round_df['round'], round_df['mean_returned'],
-                    marker='s', markersize=plot_params['marker_size'],
-                    linewidth=plot_params['line_width'],
-                    color=colors[i], label=f"自由玩家 {prop_labels[i]}",
-                    alpha=plot_params['alpha'])
-        ax.set_xlabel("轮次", fontsize=plot_params['font_size_label'], fontweight='bold')
-        ax.set_ylabel("平均返还金额", fontsize=plot_params['font_size_label'], fontweight='bold')
-        ax.set_title("不同自由玩家比例下的平均返还金额演化",
-                     fontsize=plot_params['font_size_title'], fontweight='bold', pad=15)
-        ax.legend(title="实验组", loc='best', frameon=True, fancybox=True,
-                  shadow=True, fontsize=plot_params['font_size_legend'])
-        ax.grid(True, linestyle='--', alpha=plot_params['grid_alpha'], linewidth=0.8)
-        ax.spines['top'].set_visible(False)
-        ax.spines['right'].set_visible(False)
+            plt.plot(round_df['round'], round_df['mean_returned'],
+                     marker='s', markersize=4, linewidth=1.5,
+                     color=colors[i], label=f"自由{prop_labels[i]}")
+        plt.xlabel("轮次")
+        plt.ylabel("平均返还金额")
+        plt.title("不同自由玩家比例下的平均返还金额演化")
+        plt.legend()
         plt.tight_layout()
-        plt.savefig(os.path.join(output_dir, "returned_over_rounds.png"), dpi=150, bbox_inches='tight')
+        plt.savefig(os.path.join(output_dir, "returned_over_rounds.png"), dpi=150)
         plt.close()
 
-        # 图2：基尼系数条形图
+        # 图3：基尼系数条形图
         ginis = []
         for prop in proportions:
             metrics = self.compute_core_metrics(proportion=prop)
             ginis.append(metrics['gini'])
-
-        fig, ax = plt.subplots(figsize=(10, 6))
-        bars = ax.bar(prop_labels, ginis, color=colors, edgecolor='white', linewidth=1.5, alpha=0.9)
-        ax.set_xlabel("自由玩家比例", fontsize=plot_params['font_size_label'], fontweight='bold')
-        ax.set_ylabel("基尼系数", fontsize=plot_params['font_size_label'], fontweight='bold')
-        ax.set_title("不同自由玩家比例下的财富不平等程度",
-                     fontsize=plot_params['font_size_title'], fontweight='bold', pad=15)
-        y_max = max(ginis) * 1.25 if max(ginis) > 0 else 0.6
-        ax.set_ylim(0, y_max)
-        ax.grid(axis='y', linestyle='--', alpha=plot_params['grid_alpha'], linewidth=0.8)
-        ax.spines['top'].set_visible(False)
-        ax.spines['right'].set_visible(False)
-
-        # 在柱状图上添加数值标签
+        plt.figure(figsize=(8, 5))
+        bars = plt.bar(prop_labels, ginis, color=colors, edgecolor='black')
+        plt.xlabel("自由玩家比例")
+        plt.ylabel("基尼系数")
+        plt.title("不同自由玩家比例下的财富不平等程度")
+        y_max = max(ginis) * 1.2 if max(ginis) > 0 else 0.6
+        plt.ylim(0, y_max)
         for bar, g in zip(bars, ginis):
-            height = bar.get_height()
-            ax.text(bar.get_x() + bar.get_width() / 2., height + 0.005,
-                    f'{g:.3f}', ha='center', va='bottom', fontsize=10, fontweight='bold')
+            plt.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.01,
+                     f'{g:.3f}', ha='center', va='bottom', fontsize=10)
         plt.tight_layout()
-        plt.savefig(os.path.join(output_dir, "gini_coefficient.png"), dpi=150, bbox_inches='tight')
+        plt.savefig(os.path.join(output_dir, "gini_coefficient.png"), dpi=150)
         plt.close()
 
-        # 图3：行为表型分布堆叠柱状图（百分比）
-        phenotype_counts = []
-        order = ['prosocial', 'neutral', 'antisocial']
-        for prop in proportions:
-            clustering = self.behavior_clustering(proportion=prop, n_clusters=3)
-            counts = clustering['phenotype'].value_counts()
-            cnts = [counts.get(p, 0) for p in order]
-            phenotype_counts.append(cnts)
-        phenotype_counts = np.array(phenotype_counts)
-        phenotype_pct = phenotype_counts / phenotype_counts.sum(axis=1, keepdims=True) * 100
-
-        fig, ax = plt.subplots(figsize=(10, 6))
-        bottom = np.zeros(len(proportions))
-        # 使用更柔和的配色
-        colors_pheno = ['#27ae60', '#f39c12', '#e74c3c']
-        labels_pheno = ['亲社会型', '中性型', '反社会型']
-
-        for i, (pheno, color, label) in enumerate(zip(order, colors_pheno, labels_pheno)):
-            bars = ax.bar(prop_labels, phenotype_pct[:, i], bottom=bottom,
-                          label=label, color=color, edgecolor='white', linewidth=1.2, alpha=0.9)
-            # 在每个区块中间添加百分比标签
-            for j, bar in enumerate(bars):
-                if phenotype_pct[j, i] > 5:  # 只在占比>5%时显示
-                    height = bar.get_height()
-                    y_pos = bottom[j] + height / 2
-                    ax.text(bar.get_x() + bar.get_width() / 2., y_pos,
-                            f'{phenotype_pct[j, i]:.1f}%', ha='center', va='center',
-                            fontsize=9, fontweight='bold', color='white')
-            bottom += phenotype_pct[:, i]
-
-        ax.set_xlabel("自由玩家比例", fontsize=plot_params['font_size_label'], fontweight='bold')
-        ax.set_ylabel("百分比 (%)", fontsize=plot_params['font_size_label'], fontweight='bold')
-        ax.set_title("行为表型分布", fontsize=plot_params['font_size_title'], fontweight='bold', pad=15)
-        ax.legend(title="表型类型", loc='upper right', frameon=True, fancybox=True,
-                  shadow=True, fontsize=plot_params['font_size_legend'])
-        ax.grid(axis='y', linestyle='--', alpha=plot_params['grid_alpha'], linewidth=0.8)
-        ax.spines['top'].set_visible(False)
-        ax.spines['right'].set_visible(False)
-        plt.tight_layout()
-        plt.savefig(os.path.join(output_dir, "phenotype_distribution.png"), dpi=150, bbox_inches='tight')
-        plt.close()
-
-        # 图4：个人收益分布箱线图
-        fig, ax = plt.subplots(figsize=(10, 6))
+        # 图4：个人最终累计收益分布箱线图
+        plt.figure(figsize=(10, 6))
         data_to_plot = []
         for prop in proportions:
             metrics = self.compute_core_metrics(proportion=prop)
-            agent_payoffs = metrics['agent_total_payoffs'].values
+            agent_payoffs = metrics['agent_final_payoffs'].values
             data_to_plot.append(agent_payoffs)
-
-        bp = ax.boxplot(data_to_plot, labels=prop_labels, showmeans=True, meanline=True,
-                        patch_artist=True, widths=0.6)
-
-        # 美化箱线图
-        colors_box = sns.light_palette("steelblue", n_colors=len(proportions), reverse=False)
-        for patch, color in zip(bp['boxes'], colors_box):
-            patch.set_facecolor(color)
-            patch.set_alpha(0.7)
-            patch.set_edgecolor('black')
-            patch.set_linewidth(1.5)
-
-        for whisker in bp['whiskers']:
-            whisker.set_color('black')
-            whisker.set_linewidth(1.5)
-
-        for cap in bp['caps']:
-            cap.set_color('black')
-            cap.set_linewidth(1.5)
-
-        for median in bp['medians']:
-            median.set_color('#d35400')
-            median.set_linewidth(2)
-
-        for mean in bp['means']:
-            mean.set_color('#c0392b')
-            mean.set_linewidth(2)
-            mean.set_markersize(8)
-
-        ax.set_xlabel("自由玩家比例", fontsize=plot_params['font_size_label'], fontweight='bold')
-        ax.set_ylabel("个人累计收益", fontsize=plot_params['font_size_label'], fontweight='bold')
-        ax.set_title("不同自由玩家比例下的个人收益分布",
-                     fontsize=plot_params['font_size_title'], fontweight='bold', pad=15)
-        ax.grid(axis='y', linestyle='--', alpha=plot_params['grid_alpha'], linewidth=0.8)
-        ax.spines['top'].set_visible(False)
-        ax.spines['right'].set_visible(False)
+        plt.boxplot(data_to_plot, labels=prop_labels, showmeans=True, meanline=True)
+        plt.xlabel("自由玩家比例")
+        plt.ylabel("个人累计收益")
+        plt.title("不同自由玩家比例下的个人收益分布")
+        plt.grid(axis='y', linestyle='--', alpha=0.6)
         plt.tight_layout()
-        plt.savefig(os.path.join(output_dir, "personal_payoff_boxplot.png"), dpi=150, bbox_inches='tight')
+        plt.savefig(os.path.join(output_dir, "personal_payoff_boxplot.png"), dpi=150)
         plt.close()
 
         logger.info(f"所有图表已保存至: {output_dir}")
@@ -636,38 +296,37 @@ class TrustGameAnalyzer:
 if __name__ == "__main__":
     import glob
 
+    is_multi_file = True
     # 默认 CSV 文件路径
-    output_dir = os.path.join(
+    csv_dir = os.path.join(
         CommonUtils.get_project_root_path(),
         "outputs",
-        "20260422_112210_qwen-flash_trust_game"
+        "20260430_220005_deepseek-v4-flash_trust_game"
     )
-    file_name = "20260422_112210_trust_game_p-[0, 0.25, 0.5, 0.75, 1].csv"
-    csv_path = os.path.join(output_dir, file_name)
 
-    if os.path.exists(csv_path):
-        print(f"分析文件: {csv_path}")
+    if is_multi_file:
+        import glob
+        # 使用通配符匹配所有CSV文件
+        pattern = os.path.join(csv_dir, "*.csv")
+        csv_files = glob.glob(pattern)
+        if csv_files:
+            print(f"找到 {len(csv_files)} 个CSV文件:")
+            for f in csv_files:
+                print(f"  - {f}")
 
-        analyzer = TrustGameAnalyzer([csv_path])
+            analyzer = TrustGameAnalyzer(csv_files)
 
-        report_path = os.path.join(output_dir, "analysis_report.txt")
-        figures_dir = os.path.join(output_dir, "figures")
-        grouped_data_dir = os.path.join(output_dir, f"{file_name[:16]}_grouped_data.xlsx")
-
-        analyzer.generate_report(report_path)
-        analyzer.plot_figures(figures_dir)
-        analyzer.export_pivoted_metrics_to_excel(grouped_data_dir)  # 按自由玩家比例导出数据
-
-        combined_fig_path = os.path.join(figures_dir, "returned_amount_effect.png")
-        analyzer.plot_returned_amount_with_effect_size(combined_fig_path)   # 生成不同自由玩家比例下的投资/返还金额箱线图
-
-
-
-        print("\n分析完成！")
-        print(f"报告保存至: {report_path}")
-        print(f"分组数据保存至: {grouped_data_dir}")
-        print(f"图表保存至: {figures_dir}")
     else:
-        print(f"文件不存在: {csv_path}")
-        print(f"使用方法: python analysy.py <csv_file_path>")
-        print(f"示例: python analysy.py outputs/xxx.csv")
+        file_name = "20260422_112210_trust_game_p-[0, 0.25, 0.5, 0.75, 1].csv"
+        file_path = os.path.join(csv_dir, file_name)
+
+        if os.path.exists(file_path):
+            analyzer = TrustGameAnalyzer([file_path])
+            # 导出绘图数据到Excel
+            analyzer.export_plot_data_to_excel(os.path.join(csv_dir, "plot_data.xlsx"))
+            # 生成图表
+            analyzer.plot_figures(os.path.join(csv_dir, "figures"))
+
+            print("分析完成！")
+        else:
+            print(f"文件不存在: {file_path}")
