@@ -147,6 +147,7 @@ def multi_round_exp(params: Params, timestamp: str):
             os.makedirs(output_dir, exist_ok=True)
 
             all_results = []
+            all_pair_game_results = []
             for proportion in proportions:
                 logger.info(f"\n📌 自由玩家比例: {proportion:.0%}")
                 logger.info(f"  ├─ 迭代次数: {iterations}")
@@ -168,10 +169,11 @@ def multi_round_exp(params: Params, timestamp: str):
                     )
                     # 传入GameModel
                     game_model = GameModel(scenario=scenario)
-                    results, all_dialogue = game_model.run_model(params.rounds)
+                    results, pair_game_result, all_dialogue = game_model.run_model(params.rounds)
 
                     # 将每次运行的结果列表扩展到总结果中
                     all_results.extend(results)
+                    all_pair_game_results.extend(pair_game_result)
                     dialogue_file_name = f"{timestamp}_run_id-{run_id}_QA-record_p-{proportion}_iter-{iteration}.json"
                     dialogue_file_path = os.path.join(output_dir, dialogue_file_name)
                     try:
@@ -190,22 +192,28 @@ def multi_round_exp(params: Params, timestamp: str):
                     })
                     run_id += 1
 
-            filename = f"{timestamp}_{params.game_type}_p-{proportions}.csv"
-            filepath = os.path.join(output_dir, filename)
+            filename_1 = f"{timestamp}_{params.game_type}_p-{proportions}.csv"
+            filepath_1 = os.path.join(output_dir, filename_1)
+            df1 = pd.DataFrame(all_results)
+            df1.to_csv(filepath_1, index=False, encoding='utf-8')
 
-            df = pd.DataFrame(all_results)
-            df.to_csv(filepath, index=False, encoding='utf-8')
+            filename_2 = f"{timestamp}_{params.game_type}_plot_data.xlsx"
+            filepath_2 = os.path.join(output_dir, filename_2)
+            df2 = pd.DataFrame(all_pair_game_results)
+            df2.to_excel(filepath_2, index=False, sheet_name='sent_returned_amount', engine='openpyxl')
 
             logger.info(f"\n{'=' * 80}")
             logger.info(f"📊 模型 {model_name} 实验汇总")
             logger.info(f"{'=' * 80}")
             logger.info(f"  • 总数据行数: {len(all_results)}")
-            logger.info(f"  • CSV文件: {filename}")
+            logger.info(f"  • CSV文件: {filename_1}")
+            logger.info(f"  • Excel文件: {filename_2}")
             logger.info(f"  • 保存路径: {output_dir}")
             logger.info(f"{'=' * 80}\n")
 
+
             # 对当前模型的实验结果进行分析
-            analyze_experiment_results(output_dir)
+            # analyze_experiment_results(output_dir)
 
 
 def main():

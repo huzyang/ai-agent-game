@@ -280,7 +280,7 @@ class TrustGameAnalyzer:
             metrics = self.compute_core_metrics(proportion=prop)
             agent_payoffs = metrics['agent_final_payoffs'].values
             data_to_plot.append(agent_payoffs)
-        plt.boxplot(data_to_plot, labels=prop_labels, showmeans=True, meanline=True)
+        plt.boxplot(data_to_plot, tick_labels=prop_labels, showmeans=True, meanline=True)
         plt.xlabel("自由玩家比例")
         plt.ylabel("个人累计收益")
         plt.title("不同自由玩家比例下的个人收益分布")
@@ -301,7 +301,7 @@ if __name__ == "__main__":
     csv_dir = os.path.join(
         CommonUtils.get_project_root_path(),
         "outputs",
-        "20260430_220005_deepseek-v4-flash_trust_game"
+        "20260506_162810_deepseek-v4-flash_trust_game"
     )
 
     if is_multi_file:
@@ -315,6 +315,10 @@ if __name__ == "__main__":
                 print(f"  - {f}")
 
             analyzer = TrustGameAnalyzer(csv_files)
+            # 导出绘图数据到Excel
+            analyzer.export_plot_data_to_excel(os.path.join(csv_dir, "plot_data.xlsx"))
+            # 生成图表
+            analyzer.plot_figures(os.path.join(csv_dir, "figures"))
 
     else:
         file_name = "20260422_112210_trust_game_p-[0, 0.25, 0.5, 0.75, 1].csv"

@@ -79,6 +79,7 @@ class GameModel(mesa.Model):
         self.initial_sys_prompt = {}
         self.dialogs = {}  # 存储每轮次对话数据
         self.all_data = []  # 存储所有轮次的数据行
+        self.pair_game_data = []
         self.token_usage = []  # 存储每轮次的token使用情况
 
         # 创建网格
@@ -516,7 +517,7 @@ class GameModel(mesa.Model):
 
         return result
 
-    def run_model(self, max_round=50) -> tuple[list, dict]:
+    def run_model(self, max_round=50) -> tuple[list, list, dict]:
         """运行模型指定步数"""
         import time
         import tqdm
@@ -621,7 +622,7 @@ class GameModel(mesa.Model):
         logger.info(f"  • Token记录: {len(self.token_usage)} 次")
         logger.info(f"{'=' * 70}\n")
 
-        return self.all_data, all_dialogue
+        return self.all_data, self.pair_game_data, all_dialogue
 
 
     def get_agent(self, agent_id):
@@ -649,7 +650,7 @@ class GameModel(mesa.Model):
             received_send_values = [received_from_neighbors_dict.get(nid, 0) for nid in neighbor_ids]
             returned_values = [returned_dict.get(nid, 0) for nid in neighbor_ids]
 
-            row = {
+            row_1 = {
                 "run_id": self.run_id,
                 "iteration": self.iteration,
                 "round": self.step,
@@ -690,7 +691,24 @@ class GameModel(mesa.Model):
                 "round_payoff": agent.round_payoff,
                 "accumulate_payoff": agent.balance,
             }
-            self.all_data.append(row)
+            self.all_data.append(row_1)
+
+            for neighbor_id in agent.neighbor_ids:
+
+                invested_amount = invested_dict.get(neighbor_id, 0)
+                returned_amount = returned_dict.get(neighbor_id, 0)
+
+                row_2 = {
+                    "round": self.step,
+                    "num_agents": self.num_agents,
+                    "proportion": self.proportion,
+                    "trustor_id": agent.unique_id,
+                    "trustor_type": agent.type_restriction,
+                    "trustee_id": neighbor_id,
+                    "sent_amount": invested_amount,
+                    "returned_amount": returned_amount,
+                }
+                self.pair_game_data.append(row_2)
 
     def reset_record(self):
         """重置记录"""
