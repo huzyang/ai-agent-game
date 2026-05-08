@@ -145,10 +145,11 @@ class GameModel(mesa.Model):
             id_type = agent.id_type
             neighbors_id_type = agent.neighbor_id_type
             # 系统提示词组成： p_characters[i] + p_like_people + p_experiment_info + p_game_rules.get("trust_game") + p_behavioral_objective + p_output_requirements + p_consistency
-            # character = p_characters[i]
-            character = random.choice(p_characters_student[:2])  # 测试使用
+            character = p_characters[agent.unique_id]
+            # character = random.choice(p_characters_student[:2])  # 测试使用
             agent_setting = p_settings.format(focal=id_type, n1=neighbors_id_type[0], n2=neighbors_id_type[1], n3=neighbors_id_type[2], n4=neighbors_id_type[3])
-            output_requirements = p_output_requirements.get("General") + p_output_requirements.get("Simple")
+            # output_requirements = p_output_requirements.get("General") + p_output_requirements.get("Simple")  # 极简格式
+            output_requirements = p_output_requirements.get("General") + p_output_requirements.get("BDI")  # BDI 格式
             content: str = character + p_like_people + p_experiment_info + p_game_rules.get("trust_game") + agent_setting + output_requirements
 
             # 设置ChatAgent
@@ -160,7 +161,7 @@ class GameModel(mesa.Model):
                         content=content
                     ),
                     model=self.llm_model,
-                    token_limit=32768,  # 根据实际模型支持的长度设置，例如 32K
+                    token_limit=131072,  # 根据实际模型支持的长度设置，例如 32K
                     output_language="English",
                 )
             agent.set_llm_agent(llm_agent)
@@ -362,8 +363,8 @@ class GameModel(mesa.Model):
                 total_tokens = token_usage.get('total_tokens', 0) if isinstance(token_usage, dict) else getattr(token_usage, 'total_tokens', 0)
                 self.token_usage.append(total_tokens)
 
-                logger.info(f"✅ [{player_type}] Agent {focal_agent.unique_id} 调用完成 - "
-                            f"Tokens: {total_tokens}(输入:{prompt_tokens}, 输出:{completion_tokens})")
+                # logger.info(f"✅ [{player_type}] Agent {focal_agent.unique_id} 调用完成 - "
+                #             f"Tokens: {total_tokens}(输入:{prompt_tokens}, 输出:{completion_tokens})")
 
             return focal_agent_response
         except Exception as e:
