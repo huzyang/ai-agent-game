@@ -46,8 +46,6 @@ class TrustGameAnalyzer:
     def __init__(self, csv_paths: List[str]):
         """
         初始化分析器，加载并合并多个CSV文件
-        支持新格式字段：run_id, iteration, round, num_agents, proportion,
-        agent_id, agent_type, 以及各类收益字段。
         """
         self.dfs = []
         for path in csv_paths:
@@ -296,12 +294,12 @@ class TrustGameAnalyzer:
 if __name__ == "__main__":
     import glob
 
-    is_multi_file = True
+    is_multi_file = False
     # 默认 CSV 文件路径
     csv_dir = os.path.join(
         CommonUtils.get_project_root_path(),
         "outputs",
-        "20260506_162810_deepseek-v4-flash_trust_game"
+        "deepseek-v4-flash_trust_game"
     )
 
     if is_multi_file:
@@ -315,13 +313,9 @@ if __name__ == "__main__":
                 print(f"  - {f}")
 
             analyzer = TrustGameAnalyzer(csv_files)
-            # 导出绘图数据到Excel
-            analyzer.export_plot_data_to_excel(os.path.join(csv_dir, "plot_data.xlsx"))
-            # 生成图表
-            analyzer.plot_figures(os.path.join(csv_dir, "figures"))
 
     else:
-        file_name = "20260422_112210_trust_game_p-[0, 0.25, 0.5, 0.75, 1].csv"
+        file_name = "deepseek-v4-flash_trust_game_p-[0, 0.25,0.5,0.75,1].csv"
         file_path = os.path.join(csv_dir, file_name)
 
         if os.path.exists(file_path):
