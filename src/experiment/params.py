@@ -70,6 +70,7 @@ class Params:
         self.game_type = GameType.TRUST.value
         self.rounds = 20  # 游戏轮数
         self.iterations = 1
+        self.report_bdi = False
 
         ################# LLM 参数 ####################
         load_dotenv()

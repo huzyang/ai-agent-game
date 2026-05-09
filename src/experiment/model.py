@@ -34,7 +34,7 @@ with open(os.path.join(CommonUtils.get_project_root_path(), "src/prompts/all_pro
     exp_prompts = json.load(f)
 
 p_characters = exp_prompts.get("Character", [])
-random.shuffle(p_characters)
+# random.shuffle(p_characters)
 p_characters_student = exp_prompts.get("Character_student", [])
 p_like_people = exp_prompts.get("Like-people", "")
 p_experiment_info = exp_prompts.get("Experiment_context", "")
@@ -148,8 +148,11 @@ class GameModel(mesa.Model):
             character = p_characters[agent.unique_id]
             # character = random.choice(p_characters_student[:2])  # 测试使用
             agent_setting = p_settings.format(focal=id_type, n1=neighbors_id_type[0], n2=neighbors_id_type[1], n3=neighbors_id_type[2], n4=neighbors_id_type[3])
-            # output_requirements = p_output_requirements.get("General") + p_output_requirements.get("Simple")  # 极简格式
-            output_requirements = p_output_requirements.get("General") + p_output_requirements.get("BDI")  # BDI 格式
+            if self.params.report_bdi:
+                output_requirements = p_output_requirements.get("General") + p_output_requirements.get("BDI")  # BDI 格式
+            else:
+                output_requirements = p_output_requirements.get("General") + p_output_requirements.get("Simple")  # 极简格式
+
             content: str = character + p_like_people + p_experiment_info + p_game_rules.get("trust_game") + agent_setting + output_requirements
 
             # 设置ChatAgent
