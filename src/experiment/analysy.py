@@ -2,6 +2,7 @@
 analysis.py
 信任博弈实验数据分析模块
 功能：计算核心指标（基尼系数等）、存储绘图数据到Excel、生成论文风格图表
+扩展功能：按proportion分组提取列值、绘制抖动散点+箱线图（复刻例图）
 """
 
 import os
@@ -9,7 +10,6 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-from src.utils import CommonUtils
 from typing import List, Dict, Optional
 import logging
 
@@ -79,6 +79,12 @@ class TrustGameAnalyzer:
         sns.set_theme(style="whitegrid")
         plt.rcParams.update(self.STYLE)
 
+        # 预计算熔化的单次发送/返还数据（用于例图复刻）
+        self.melted_df = self._melt_send_return()
+
+    # ----------------------------------------------------------------------
+    # 1. 核心指标计算
+    # ----------------------------------------------------------------------
     @staticmethod
     def gini_coefficient(values: np.ndarray) -> float:
         """计算基尼系数（仅非负值）"""
@@ -137,15 +143,145 @@ class TrustGameAnalyzer:
             'round_metrics': round_metrics,
         }
 
+    # ----------------------------------------------------------------------
+    # 2. 新增：按 proportion 分组提取列值
+    # ----------------------------------------------------------------------
+    def get_grouped_values_for_column(self, column_name: str) -> pd.DataFrame:
+        """
+        将指定列按 proportion 分组，返回各组所有值的垂直对齐 DataFrame。
+        每列是一个 proportion，每行是该 proportion 下的一个原始值，
+        不同组的行数可能不同，用 NaN 填充至最大行数。
+        """
+        groups = []
+        proportions = sorted(self.df['proportion'].unique())
+        for prop in proportions:
+            values = self.df[self.df['proportion'] == prop][column_name].dropna().values
+            groups.append(pd.Series(values, name=prop))
+        # 按最大长度对齐
+        max_len = max(len(g) for g in groups) if groups else 0
+        aligned = []
+        for g in groups:
+            if len(g) < max_len:
+                g = g.reindex(range(max_len))
+            aligned.append(g)
+        result = pd.concat(aligned, axis=1)
+        # 列名保持为原始比例值
+        return result
+
+    # ----------------------------------------------------------------------
+    # 3. 新增：绘制抖动散点 + 箱线图（无异常值）
+    # ----------------------------------------------------------------------
+    def plot_jitter_boxplot_for_column(self, column_name: str, output_path: str,
+                                       jitter_strength: float = 0.02):
+        """
+        对指定列（数值型）按 proportion 分组，绘制抖动散点 + 箱线图（关闭异常值点）。
+        横轴：proportion
+        纵轴：column_name 的值
+        散点添加横向 jitter 避免重叠。
+        """
+        df_plot = self.df[['proportion', column_name]].dropna()
+        proportions = sorted(df_plot['proportion'].unique())
+        plt.figure(figsize=(8, 6))
+
+        # 准备箱线图数据
+        box_data = [df_plot[df_plot['proportion'] == p][column_name].values for p in proportions]
+
+        # 绘制箱线图（无异常值点）
+        bp = plt.boxplot(box_data, positions=proportions, widths=0.15,
+                         patch_artist=True, showfliers=False,
+                         boxprops=dict(facecolor='lightblue', alpha=0.7),
+                         medianprops=dict(color='red', linewidth=2),
+                         whiskerprops=dict(color='black'),
+                         capprops=dict(color='black'))
+
+        # 添加抖动散点
+        np.random.seed(42)  # 可重现的 jitter
+        for p in proportions:
+            vals = df_plot[df_plot['proportion'] == p][column_name].values
+            jitter = np.random.uniform(-jitter_strength, jitter_strength, size=len(vals))
+            x = p + jitter
+            plt.scatter(x, vals, s=15, alpha=0.5, c='dimgray', edgecolors='none')
+
+        plt.xlabel('Fraction of free players')
+        plt.ylabel(column_name)
+        plt.xticks(proportions, [f'{p:.2f}' for p in proportions])
+        plt.grid(axis='y', linestyle='--', alpha=0.4)
+        plt.tight_layout()
+        plt.savefig(output_path, dpi=150)
+        plt.close()
+        logger.info(f"已保存抖动箱线图: {output_path}")
+
+    # ----------------------------------------------------------------------
+    # 4. 熔化为单次发送/返还金额（用于复刻题图）
+    # ----------------------------------------------------------------------
+    def _melt_send_return(self) -> pd.DataFrame:
+        """
+        将 sent_to_n1~sent_to_n4 和 returned_to_n1~returned_to_n4 转换为长格式，
+        每条记录代表一次单边交互（发送或返还）。
+        返回 DataFrame 包含列：proportion, amount, type ('sent' or 'returned')
+        """
+        # 发送部分
+        sent_cols = ['sent_to_n1', 'sent_to_n2', 'sent_to_n3', 'sent_to_n4']
+        sent_long = pd.melt(self.df, id_vars=['proportion'], value_vars=sent_cols,
+                            var_name='neighbor', value_name='amount')
+        sent_long['type'] = 'sent'
+        # 返还部分
+        returned_cols = ['returned_to_n1', 'returned_to_n2', 'returned_to_n3', 'returned_to_n4']
+        ret_long = pd.melt(self.df, id_vars=['proportion'], value_vars=returned_cols,
+                           var_name='neighbor', value_name='amount')
+        ret_long['type'] = 'returned'
+        # 合并
+        melted = pd.concat([sent_long, ret_long], ignore_index=True)
+        # 删除缺失值
+        melted = melted.dropna(subset=['amount'])
+        return melted
+
+    def plot_jitter_boxplot_from_melted(self, amount_type: str, output_path: str,
+                                        jitter_strength: float = 0.02):
+        """
+        使用熔化的单次交互数据绘制抖动散点+箱线图。
+        amount_type: 'sent' 或 'returned'
+        """
+        df_plot = self.melted_df[self.melted_df['type'] == amount_type]
+        if df_plot.empty:
+            logger.warning(f"没有找到类型为 {amount_type} 的数据")
+            return
+        proportions = sorted(df_plot['proportion'].unique())
+        plt.figure(figsize=(8, 6))
+
+        box_data = [df_plot[df_plot['proportion'] == p]['amount'].values for p in proportions]
+
+        bp = plt.boxplot(box_data, positions=proportions, widths=0.15,
+                         patch_artist=True, showfliers=False,
+                         boxprops=dict(facecolor='lightblue', alpha=0.7),
+                         medianprops=dict(color='red', linewidth=2),
+                         whiskerprops=dict(color='black'),
+                         capprops=dict(color='black'))
+
+        np.random.seed(42)
+        for p in proportions:
+            vals = df_plot[df_plot['proportion'] == p]['amount'].values
+            jitter = np.random.uniform(-jitter_strength, jitter_strength, size=len(vals))
+            x = p + jitter
+            plt.scatter(x, vals, s=15, alpha=0.5, c='dimgray', edgecolors='none')
+
+        ylabel = 'Sent amount' if amount_type == 'sent' else 'Returned amount'
+        plt.xlabel('Fraction of free players')
+        plt.ylabel(ylabel)
+        plt.xticks(proportions, [f'{p:.2f}' for p in proportions])
+        plt.grid(axis='y', linestyle='--', alpha=0.4)
+        plt.tight_layout()
+        plt.savefig(output_path, dpi=150)
+        plt.close()
+        logger.info(f"已保存 {amount_type} 抖动箱线图: {output_path}")
+
+    # ----------------------------------------------------------------------
+    # 5. 导出 Excel（原有功能 + 新增分组工作表）
+    # ----------------------------------------------------------------------
     def export_plot_data_to_excel(self, output_excel_path: str):
         """
         将绘图所需的核心数据存储到 Excel 的一个工作簿中。
-        包含多个工作表：
-            - summary: 各比例下的平均委托、返还、基尼系数、总收益
-            - round_mean_invested: 各比例每轮平均委托金额（透视表）
-            - round_mean_returned: 各比例每轮平均返还金额（透视表）
-            - round_total_payoff: 各比例每轮群体总收益（透视表）
-            - gini_by_proportion: 各比例基尼系数
+        新增：对 total_sent 和 total_returned 生成分组工作表（grouped_*）
         """
         proportions = sorted(self.df['proportion'].unique())
         summary_data = []
@@ -194,7 +330,10 @@ class TrustGameAnalyzer:
         summary_df = pd.DataFrame(summary_data)
         gini_df = pd.DataFrame(gini_list)
 
-        # 写入 Excel
+        # 获取分组数据（total_sent 和 total_returned）
+        grouped_sent = self.get_grouped_values_for_column('total_sent')
+        grouped_returned = self.get_grouped_values_for_column('total_returned')
+
         with pd.ExcelWriter(output_excel_path, engine='openpyxl') as writer:
             summary_df.to_excel(writer, sheet_name='summary', index=False)
             if round_invested_table is not None:
@@ -202,6 +341,9 @@ class TrustGameAnalyzer:
                 round_returned_table.to_excel(writer, sheet_name='round_mean_returned', index=False)
                 round_payoff_table.to_excel(writer, sheet_name='round_total_payoff', index=False)
             gini_df.to_excel(writer, sheet_name='gini_by_proportion', index=False)
+            # 新增分组数据工作表
+            grouped_sent.to_excel(writer, sheet_name='grouped_total_sent', index=False)
+            grouped_returned.to_excel(writer, sheet_name='grouped_total_returned', index=False)
 
         logger.info(f"绘图数据已导出至: {output_excel_path}")
         return output_excel_path
@@ -220,7 +362,7 @@ class TrustGameAnalyzer:
         colors = sns.color_palette("Blues_d", n_colors=len(proportions))
         prop_labels = [f"{int(p*100)}%" for p in proportions]
 
-        # 图1：委托金额随轮次变化
+        # 图1：委托金额演化
         plt.figure(figsize=(10, 6))
         for i, prop in enumerate(proportions):
             metrics = self.compute_core_metrics(proportion=prop)
@@ -236,7 +378,7 @@ class TrustGameAnalyzer:
         plt.savefig(os.path.join(output_dir, "invested_over_rounds.png"), dpi=150)
         plt.close()
 
-        # 图2：返还金额随轮次变化
+        # 图2：返还金额演化
         plt.figure(figsize=(10, 6))
         for i, prop in enumerate(proportions):
             metrics = self.compute_core_metrics(proportion=prop)
@@ -253,10 +395,7 @@ class TrustGameAnalyzer:
         plt.close()
 
         # 图3：基尼系数条形图
-        ginis = []
-        for prop in proportions:
-            metrics = self.compute_core_metrics(proportion=prop)
-            ginis.append(metrics['gini'])
+        ginis = [self.compute_core_metrics(proportion=prop)['gini'] for prop in proportions]
         plt.figure(figsize=(8, 5))
         bars = plt.bar(prop_labels, ginis, color=colors, edgecolor='black')
         plt.xlabel("自由玩家比例")
@@ -271,13 +410,9 @@ class TrustGameAnalyzer:
         plt.savefig(os.path.join(output_dir, "gini_coefficient.png"), dpi=150)
         plt.close()
 
-        # 图4：个人最终累计收益分布箱线图
+        # 图4：个人累计收益箱线图
+        data_to_plot = [self.compute_core_metrics(proportion=prop)['agent_final_payoffs'].values for prop in proportions]
         plt.figure(figsize=(10, 6))
-        data_to_plot = []
-        for prop in proportions:
-            metrics = self.compute_core_metrics(proportion=prop)
-            agent_payoffs = metrics['agent_final_payoffs'].values
-            data_to_plot.append(agent_payoffs)
         plt.boxplot(data_to_plot, tick_labels=prop_labels, showmeans=True, meanline=True)
         plt.xlabel("自由玩家比例")
         plt.ylabel("个人累计收益")
@@ -287,44 +422,48 @@ class TrustGameAnalyzer:
         plt.savefig(os.path.join(output_dir, "personal_payoff_boxplot.png"), dpi=150)
         plt.close()
 
-        logger.info(f"所有图表已保存至: {output_dir}")
+        logger.info(f"所有论文风格图表已保存至: {output_dir}")
 
 
+# ----------------------------------------------------------------------
 # 命令行使用示例
+# ----------------------------------------------------------------------
 if __name__ == "__main__":
     import glob
+    from src.utils import CommonUtils   # 请确保项目中有 CommonUtils，或直接指定路径
 
-    is_multi_file = False
-    # 默认 CSV 文件路径
+    # 数据目录（可根据实际情况修改）
     csv_dir = os.path.join(
         CommonUtils.get_project_root_path(),
         "outputs",
         "deepseek-v4-flash_trust_game"
     )
 
-    if is_multi_file:
-        import glob
-        # 使用通配符匹配所有CSV文件
-        pattern = os.path.join(csv_dir, "*.csv")
-        csv_files = glob.glob(pattern)
-        if csv_files:
-            print(f"找到 {len(csv_files)} 个CSV文件:")
-            for f in csv_files:
-                print(f"  - {f}")
+    file_name = "deepseek-v4-flash_trust_game_p-[0, 0.25,0.5,0.75,1].csv"
+    file_path = os.path.join(csv_dir, file_name)
 
-            analyzer = TrustGameAnalyzer(csv_files)
-
-    else:
-        file_name = "deepseek-v4-flash_trust_game_p-[0, 0.25,0.5,0.75,1].csv"
-        file_path = os.path.join(csv_dir, file_name)
-
-        if os.path.exists(file_path):
-            analyzer = TrustGameAnalyzer([file_path])
-            # 导出绘图数据到Excel
-            analyzer.export_plot_data_to_excel(os.path.join(csv_dir, "plot_data.xlsx"))
-            # 生成图表
-            analyzer.plot_figures(os.path.join(csv_dir, "figures"))
-
-            print("分析完成！")
+    if not os.path.exists(file_path):
+        # 尝试从当前目录查找
+        if os.path.exists(file_name):
+            file_path = file_name
         else:
             print(f"文件不存在: {file_path}")
+            exit(1)
+
+    analyzer = TrustGameAnalyzer([file_path])
+
+    # 1. 导出 Excel（包含分组数据）
+    analyzer.export_plot_data_to_excel(os.path.join(csv_dir, "plot_data.xlsx"))
+
+    # 2. 生成复刻例图的抖动散点+箱线图（基于单次发送/返还金额）
+    # analyzer.plot_jitter_boxplot_from_melted('sent', os.path.join(csv_dir, "sent_amount_plot.png"))
+    # analyzer.plot_jitter_boxplot_from_melted('returned', os.path.join(csv_dir, "returned_amount_plot.png"))
+
+    # 3. 可选：直接对 total_sent 列生成抖动箱线图（作为补充）
+    # analyzer.plot_jitter_boxplot_for_column('total_sent', os.path.join(csv_dir, "total_sent_jitter.png"))
+    # analyzer.plot_jitter_boxplot_for_column('total_returned', os.path.join(csv_dir, "total_returned_jitter.png"))
+
+    # 4. 生成原有的论文风格图表（轮次演化、基尼系数等）
+    analyzer.plot_figures(os.path.join(csv_dir, "figures"))
+
+    print("所有分析和绘图完成！")
