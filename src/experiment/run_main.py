@@ -197,7 +197,7 @@ def multi_round_exp(params: Params, timestamp: str):
             df1 = pd.DataFrame(all_results)
             df1.to_csv(filepath_1, index=False, encoding='utf-8')
 
-            filename_2 = f"{timestamp}_{params.game_type}_plot_data.xlsx"
+            filename_2 = f"{timestamp}_{params.game_type}_pair_data.xlsx"
             filepath_2 = os.path.join(output_dir, filename_2)
             df2 = pd.DataFrame(all_pair_game_results)
             df2.to_excel(filepath_2, index=False, sheet_name='sent_returned_amount', engine='openpyxl')

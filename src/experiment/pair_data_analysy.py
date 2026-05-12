@@ -19,10 +19,10 @@ import pandas as pd
 csv_dir = os.path.join(
     CommonUtils.get_project_root_path(),
     "outputs",
-    "deepseek-v4-flash_trust_game"
+    "20260509_Char-BDI_deepseek-v4-flash_trust_game"
 )
 # 读取数据（请确保文件路径正确）
-file_name = "deepseek-v4-flash_trust_game_plot_data_p-[0, 0.25,0.5,0.75,1].xlsx"
+file_name = "20260509_142151_trust_game_p-[0, 0.25,0.5,0.75,1]_pair_data_v2.xlsx"
 file_path = os.path.join(csv_dir, file_name)
 df = pd.read_excel(file_path)  # 实际为 xlsx 格式，使用 read_excel
 

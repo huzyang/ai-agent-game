@@ -436,10 +436,10 @@ if __name__ == "__main__":
     csv_dir = os.path.join(
         CommonUtils.get_project_root_path(),
         "outputs",
-        "deepseek-v4-flash_trust_game"
+        "20260509_Char-BDI_deepseek-v4-flash_trust_game"
     )
 
-    file_name = "deepseek-v4-flash_trust_game_p-[0, 0.25,0.5,0.75,1].csv"
+    file_name = "20260509_142151_trust_game_p-[0, 0.25,0.5,0.75,1]_v2.csv"
     file_path = os.path.join(csv_dir, file_name)
 
     if not os.path.exists(file_path):
@@ -456,12 +456,12 @@ if __name__ == "__main__":
     analyzer.export_plot_data_to_excel(os.path.join(csv_dir, "plot_data.xlsx"))
 
     # 2. 生成复刻例图的抖动散点+箱线图（基于单次发送/返还金额）
-    # analyzer.plot_jitter_boxplot_from_melted('sent', os.path.join(csv_dir, "sent_amount_plot.png"))
-    # analyzer.plot_jitter_boxplot_from_melted('returned', os.path.join(csv_dir, "returned_amount_plot.png"))
+    analyzer.plot_jitter_boxplot_from_melted('sent', os.path.join(csv_dir, "figures", "sent_amount_plot.png"))
+    analyzer.plot_jitter_boxplot_from_melted('returned', os.path.join(csv_dir, "figures", "returned_amount_plot.png"))
 
     # 3. 可选：直接对 total_sent 列生成抖动箱线图（作为补充）
-    # analyzer.plot_jitter_boxplot_for_column('total_sent', os.path.join(csv_dir, "total_sent_jitter.png"))
-    # analyzer.plot_jitter_boxplot_for_column('total_returned', os.path.join(csv_dir, "total_returned_jitter.png"))
+    analyzer.plot_jitter_boxplot_for_column('total_sent', os.path.join(csv_dir, "figures", "total_sent_jitter.png"))
+    analyzer.plot_jitter_boxplot_for_column('total_returned', os.path.join(csv_dir, "figures", "total_returned_jitter.png"))
 
     # 4. 生成原有的论文风格图表（轮次演化、基尼系数等）
     analyzer.plot_figures(os.path.join(csv_dir, "figures"))

@@ -144,16 +144,19 @@ class GameModel(mesa.Model):
         for agent in self.agents:
             id_type = agent.id_type
             neighbors_id_type = agent.neighbor_id_type
+            rounds = self.params.rounds
             # 系统提示词组成： p_characters[i] + p_like_people + p_experiment_info + p_game_rules.get("trust_game") + p_behavioral_objective + p_output_requirements + p_consistency
             character = p_characters[agent.unique_id]
             # character = random.choice(p_characters_student[:2])  # 测试使用
+            experiment_info = p_experiment_info.format(rounds=rounds)
+            game_play_rules = p_game_rules.get(self.game_type).format(width=self.width, height=self.height)
             agent_setting = p_settings.format(focal=id_type, n1=neighbors_id_type[0], n2=neighbors_id_type[1], n3=neighbors_id_type[2], n4=neighbors_id_type[3])
             if self.params.report_bdi:
                 output_requirements = p_output_requirements.get("General") + p_output_requirements.get("BDI")  # BDI 格式
             else:
                 output_requirements = p_output_requirements.get("General") + p_output_requirements.get("Simple")  # 极简格式
 
-            content: str = character + p_like_people + p_experiment_info + p_game_rules.get("trust_game") + agent_setting + output_requirements
+            content: str = character + p_like_people + experiment_info + game_play_rules + agent_setting + output_requirements
 
             # 设置ChatAgent
             llm_agent = ChatAgent(
@@ -256,11 +259,10 @@ class GameModel(mesa.Model):
                 self.dialogs[round_key][agent_key] = {}
 
             if focal_agent_response is None:
-                logger.warning(f"⚠️ Agent {focal_agent.unique_id} 响应为空，使用默认决策")
                 send_amounts = {}
                 for neighbor_id in focal_agent.neighbor_ids:
                     send_amounts[neighbor_id] = 0
-
+                logger.warning(f"⚠️ Agent {focal_agent.unique_id} 响应为空，使用默认决策{send_amounts}")
                 content_str = "ERROR"
                 reasoning_str = "ERROR"
             else:
@@ -472,10 +474,28 @@ class GameModel(mesa.Model):
 
         if dict_match:
             content = dict_match.group(1)
+
+            # 1.1 先尝试匹配带引号的键名格式 {"3":1, "27":2}
+            quoted_pairs = re.findall(r'"(\d+)"\s*:\s*(\d+(?:\.\d+)?)', content)
+            if quoted_pairs:
+                result = {int(k): float(v) for k, v in quoted_pairs}
+                logger.debug(f"提取发送金额决策(带引号键名): {result}")
+                return self._decisions_check(result, agent, player_type)
+
+            # 1.2 再尝试匹配不带引号的键名格式 {3:1, 27:2}
             pairs = re.findall(r"(\d+)\s*:\s*(\d+(?:\.\d+)?)", content)
             if pairs:
                 result = {int(k): float(v) for k, v in pairs}
                 logger.debug(f"提取发送金额决策: {result}")
+                return self._decisions_check(result, agent, player_type)
+
+            # 1.3 匹配 return/total_return 格式 {return: 5} 或 {total_return: 5}
+            return_pattern = r"(?:total_)?return\s*:\s*(\d+(?:\.\d+)?)"
+            return_match = re.search(return_pattern, content, re.IGNORECASE)
+            if return_match:
+                value = float(return_match.group(1))
+                result = {int(nid): value / 4 for nid in agent.neighbor_ids}
+                logger.debug(f"提取return格式决策，总值{value}，平均分配: {result}")
                 return self._decisions_check(result, agent, player_type)
 
         # 2. 尝试提取任意单个数字（通用匹配）
@@ -497,7 +517,7 @@ class GameModel(mesa.Model):
             return self._decisions_check(result, agent, player_type)
 
         # 所有格式都不匹配
-        logger.warning(f"未匹配到任何发送金额格式，原始响应: {answer[:100]}")
+        logger.warning(f"agent_{agent.unique_id}回复未匹配到任何发送金额格式，原始响应: {answer[-100:]}")
         return self._decisions_check(result, agent, player_type)
 
     def _decisions_check(self, result, agent, player_type):
@@ -515,8 +535,8 @@ class GameModel(mesa.Model):
         else:
             return result
 
-        if total_amount > max_total or result == {}:
-            logger.warning(f"{player_type.capitalize()}发送总额{total_amount}超过限制{max_total}，调整为每邻居{default_per_neighbor}")
+        if total_amount > max_total:
+            logger.warning(f"{player_type.capitalize()},agent_{agent.unique_id}发送总额{total_amount}, 超过最大值{max_total}，调整为每邻居{default_per_neighbor}")
             return {int(nid): default_per_neighbor for nid in agent.neighbor_ids}
 
         return result
@@ -584,8 +604,8 @@ class GameModel(mesa.Model):
         all_dialogue = {
             "initial_sys_prompt": self.initial_sys_prompt,
             "dialogs": self.dialogs,
-            "agent_invested_amounts": self.agents_invested_amounts,
-            "agent_returned_amounts": self.agents_returned_amounts,
+            # "agent_invested_amounts": self.agents_invested_amounts,
+            # "agent_returned_amounts": self.agents_returned_amounts,
         }
 
         # 打印最终统计
@@ -693,6 +713,7 @@ class GameModel(mesa.Model):
                 "trustor_payoff": agent.trustor_payoff,
                 "trustee_payoff": agent.trustee_payoff,
                 "round_payoff": agent.round_payoff,
+                "last_accumulate_payoff": agent.last_balance,
                 "accumulate_payoff": agent.balance,
             }
             self.all_data.append(row_1)
