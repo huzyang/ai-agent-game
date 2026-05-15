@@ -12,7 +12,8 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from typing import List, Dict, Optional
 import logging
-
+from sklearn.cluster import KMeans
+from sklearn.preprocessing import StandardScaler
 logger = logging.getLogger(__name__)
 
 # 设置中文字体（避免图表中文乱码）
@@ -129,8 +130,8 @@ class TrustGameAnalyzer:
 
         # 按轮次聚合：平均委托、平均返还、每轮所有 agent 的 round_payoff 之和（群体单轮收益）
         round_metrics = df.groupby('round').agg(
-            mean_invested=('total_sent', lambda x: x.mean() / 4),
-            mean_returned=('total_returned', lambda x: x.mean() / 4),
+            mean_invested=('total_sent', lambda x: x.mean()),
+            mean_returned=('total_returned', lambda x: x.mean()),
             total_payoff=('round_payoff', 'sum')
         ).reset_index()
 
@@ -143,6 +144,70 @@ class TrustGameAnalyzer:
             'round_metrics': round_metrics,
         }
 
+    def behavior_clustering(self, n_clusters: int = 3) -> pd.DataFrame:
+        """
+        行为表型聚类：对不同 proportion 分别聚类，得到每个 agent 在各比例下的行为表型
+        输出三类：0=prosocial（亲社会）, 1=neutral（中性）, 2=antisocial（反社会）
+        分类依据：聚类后按平均委托金额排序，高 -> prosocial(0)，中 -> neutral(1)，低 -> antisocial(2)
+
+        Returns:
+            DataFrame: 第一列是 agent_id，其他列是各 proportion 值（0, 0.25, 0.5, 0.75, 1）
+                      单元格值为行为表型标签（0/1/2）
+        """
+        proportions = sorted(self.df['proportion'].unique())
+        all_results = []
+
+        for prop in proportions:
+            df_prop = self.df[self.df['proportion'] == prop]
+            if len(df_prop) == 0:
+                logger.warning(f"proportion={prop} 无数据，跳过")
+                continue
+
+            # 提取每个 agent 作为投资者的平均行为
+            agent_investor = df_prop.groupby('agent_id').agg(
+                mean_invested=('total_sent', 'mean')
+            ).reset_index()
+
+            if len(agent_investor) < n_clusters:
+                logger.warning(f"proportion={prop} 的 agent 数量({len(agent_investor)})少于聚类数({n_clusters})，跳过")
+                continue
+
+            # 标准化
+            features = agent_investor[['mean_invested']].values
+            scaler = StandardScaler()
+            features_scaled = scaler.fit_transform(features)
+
+            # K-means 聚类
+            kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+            labels = kmeans.fit_predict(features_scaled)
+            agent_investor['cluster'] = labels
+
+            # 根据平均委托金额排序确定标签含义：高->0(prosocial), 中->1(neutral), 低->2(antisocial)
+            cluster_order = agent_investor.groupby('cluster')['mean_invested'].mean().sort_values(ascending=False).index.tolist()
+            type_map = {cluster_order[i]: i for i in range(len(cluster_order))}
+
+            agent_investor['phenotype'] = agent_investor['cluster'].map(type_map)
+
+            # 只保留 agent_id 和 phenotype，重命名列为 proportion 值
+            result_col = agent_investor[['agent_id', 'phenotype']].rename(columns={'phenotype': str(prop)})
+            all_results.append(result_col)
+
+            logger.info(f"proportion={prop} 行为聚类完成，各类别计数:\n{agent_investor['phenotype'].value_counts().to_dict()}")
+
+        if not all_results:
+            raise ValueError("没有任何 proportion 的数据可用于聚类")
+
+        # 合并所有 proportion 的结果
+        merged_df = all_results[0]
+        for result in all_results[1:]:
+            merged_df = pd.merge(merged_df, result, on='agent_id', how='outer')
+
+        # 确保列顺序：agent_id, 0, 0.25, 0.5, 0.75, 1
+        col_order = ['agent_id'] + [str(p) for p in proportions if str(p) in merged_df.columns]
+        merged_df = merged_df[col_order]
+
+        logger.info(f"行为聚类完成，共 {len(merged_df)} 个 agent，proportions: {proportions}")
+        return merged_df
     # ----------------------------------------------------------------------
     # 2. 新增：按 proportion 分组提取列值
     # ----------------------------------------------------------------------
@@ -320,9 +385,9 @@ class TrustGameAnalyzer:
             round_returned_table = round_returned_pivot.pivot(index='round', columns='proportion', values='mean_returned')
             round_payoff_table = round_payoff_pivot.pivot(index='round', columns='proportion', values='total_payoff')
             # 重命名列
-            round_invested_table.columns = [f'proportion={c}' for c in round_invested_table.columns]
-            round_returned_table.columns = [f'proportion={c}' for c in round_returned_table.columns]
-            round_payoff_table.columns = [f'proportion={c}' for c in round_payoff_table.columns]
+            round_invested_table.columns = [f'{c}' for c in round_invested_table.columns]
+            round_returned_table.columns = [f'{c}' for c in round_returned_table.columns]
+            round_payoff_table.columns = [f'{c}' for c in round_payoff_table.columns]
             round_invested_table.reset_index(inplace=True)
             round_returned_table.reset_index(inplace=True)
             round_payoff_table.reset_index(inplace=True)
@@ -334,6 +399,14 @@ class TrustGameAnalyzer:
         grouped_sent = self.get_grouped_values_for_column('total_sent')
         grouped_returned = self.get_grouped_values_for_column('total_returned')
 
+        # 执行行为聚类（默认3类）
+        try:
+            clustering_result = self.behavior_clustering(n_clusters=3)
+            has_clustering = True
+        except Exception as e:
+            logger.warning(f"行为聚类失败: {e}")
+            has_clustering = False
+
         with pd.ExcelWriter(output_excel_path, engine='openpyxl') as writer:
             summary_df.to_excel(writer, sheet_name='summary', index=False)
             if round_invested_table is not None:
@@ -344,6 +417,9 @@ class TrustGameAnalyzer:
             # 新增分组数据工作表
             grouped_sent.to_excel(writer, sheet_name='grouped_total_sent', index=False)
             grouped_returned.to_excel(writer, sheet_name='grouped_total_returned', index=False)
+            # 新增行为聚类结果工作表
+            if has_clustering:
+                clustering_result.to_excel(writer, sheet_name='behavior_clustering', index=False)
 
         logger.info(f"绘图数据已导出至: {output_excel_path}")
         return output_excel_path
@@ -424,7 +500,6 @@ class TrustGameAnalyzer:
 
         logger.info(f"所有论文风格图表已保存至: {output_dir}")
 
-
 # ----------------------------------------------------------------------
 # 命令行使用示例
 # ----------------------------------------------------------------------
@@ -439,7 +514,7 @@ if __name__ == "__main__":
         "20260509_Char-BDI_deepseek-v4-flash_trust_game"
     )
 
-    file_name = "20260509_142151_trust_game_p-[0, 0.25,0.5,0.75,1]_v2.csv"
+    file_name = "20260509_142151_trust_game_p-[0, 0.25,0.5,0.75,1]_v3.csv"
     file_path = os.path.join(csv_dir, file_name)
 
     if not os.path.exists(file_path):
@@ -456,14 +531,14 @@ if __name__ == "__main__":
     analyzer.export_plot_data_to_excel(os.path.join(csv_dir, "plot_data.xlsx"))
 
     # 2. 生成复刻例图的抖动散点+箱线图（基于单次发送/返还金额）
-    analyzer.plot_jitter_boxplot_from_melted('sent', os.path.join(csv_dir, "figures", "sent_amount_plot.png"))
-    analyzer.plot_jitter_boxplot_from_melted('returned', os.path.join(csv_dir, "figures", "returned_amount_plot.png"))
+    # analyzer.plot_jitter_boxplot_from_melted('sent', os.path.join(csv_dir, "figures", "sent_amount_plot.png"))
+    # analyzer.plot_jitter_boxplot_from_melted('returned', os.path.join(csv_dir, "figures", "returned_amount_plot.png"))
 
     # 3. 可选：直接对 total_sent 列生成抖动箱线图（作为补充）
-    analyzer.plot_jitter_boxplot_for_column('total_sent', os.path.join(csv_dir, "figures", "total_sent_jitter.png"))
-    analyzer.plot_jitter_boxplot_for_column('total_returned', os.path.join(csv_dir, "figures", "total_returned_jitter.png"))
+    # analyzer.plot_jitter_boxplot_for_column('total_sent', os.path.join(csv_dir, "figures", "total_sent_jitter.png"))
+    # analyzer.plot_jitter_boxplot_for_column('total_returned', os.path.join(csv_dir, "figures", "total_returned_jitter.png"))
 
     # 4. 生成原有的论文风格图表（轮次演化、基尼系数等）
-    analyzer.plot_figures(os.path.join(csv_dir, "figures"))
+    # analyzer.plot_figures(os.path.join(csv_dir, "figures"))
 
     print("所有分析和绘图完成！")

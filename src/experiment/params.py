@@ -65,19 +65,19 @@ class Params:
         self.num_agents = 36
         self.width: int = int(self.num_agents ** 0.5)  # 根号 N
         self.height: int = self.width
-        self.proportions = [0, 0.25, 0.5]  # 自由节点比例 0, 0.25, 0.5, 0.75, 1
-        self.model_type_list = [ModelType.QWEN3_6_FLASH.value]
+        self.proportions = [0.5]  # 自由节点比例 0, 0.25, 0.5, 0.75, 1
+        self.model_type_list = [ModelType.DEEPSEEK_V_4_PRO.value]
         self.game_type = GameType.TRUST.value
-        self.rounds = 20  # 游戏轮数
+        self.rounds = 10  # 游戏轮数
         self.iterations = 1
-        self.report_bdi = True
+        self.report_bdi = False
 
         ################# LLM 参数 ####################
         load_dotenv()
-        self.api_key = os.getenv("QWEN_API_KEY_131")  # QWEN_API_KEY_130, QWEN_API_KEY_131, DEEPSEEK_API_KEY
+        self.api_key = os.getenv("DEEPSEEK_API_KEY")  # QWEN_API_KEY_130, QWEN_API_KEY_131, DEEPSEEK_API_KEY
         if not self.api_key:
             raise ValueError("请设置环境变量 QWEN_API_KEY")
-        self.api_base_url = os.getenv("QWEN_API_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")  # QWEN_API_BASE_URL, DEEPSEEK_API_BASE_URL
+        self.api_base_url = os.getenv("DEEPSEEK_API_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")  # QWEN_API_BASE_URL, DEEPSEEK_API_BASE_URL
         self.temperature = 1.0
         self.max_tokens = 65536 # 65536, 131072
 
