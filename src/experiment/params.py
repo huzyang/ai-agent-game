@@ -9,10 +9,10 @@ from mesa.experimental.scenarios import Scenario
 
 class ModelType(Enum):
     QWEN3_6_FLASH = "qwen3.6-flash"
-    QWEN3_5_FLASH_2026_02_23 = "qwen3.5-flash-2026-02-23"
+    QWEN3_6_PLUS = "qwen3.6-plus"
     QWEN3_5_FLASH = "qwen3.5-flash"
     QWEN3_5_MAX = "qwen3.5-max"
-    QWEN_FLASH = "qwen-flash"
+    QWEN3_MAX = "qwen3-max"
 
     DEEPSEEK_V_4_FLASH = "deepseek-v4-flash"
     DEEPSEEK_V_4_PRO = "deepseek-v4-pro"
@@ -51,7 +51,7 @@ class GameScenario(Scenario):
     width: int = int(num_agents ** 0.5)  # 根号 N
     height: int = width
     torus: bool = True
-    model_type: str = ModelType.QWEN_FLASH.value
+    model_type: str = ModelType.QWEN3_MAX.value
     game_type: str = GameType.TRUST.value
     proportion: float = 0.5  # 自由节点比例
 
@@ -65,8 +65,8 @@ class Params:
         self.num_agents = 36
         self.width: int = int(self.num_agents ** 0.5)  # 根号 N
         self.height: int = self.width
-        self.proportions = [0.5]  # 自由节点比例 0, 0.25, 0.5, 0.75, 1
-        self.model_type_list = [ModelType.DEEPSEEK_V_4_PRO.value]
+        self.proportions = [1]  # 自由节点比例 0, 0.25, 0.5, 0.75, 1
+        self.model_type_list = [ModelType.QWEN3_MAX.value]
         self.game_type = GameType.TRUST.value
         self.rounds = 10  # 游戏轮数
         self.iterations = 1
@@ -74,10 +74,10 @@ class Params:
 
         ################# LLM 参数 ####################
         load_dotenv()
-        self.api_key = os.getenv("DEEPSEEK_API_KEY")  # QWEN_API_KEY_130, QWEN_API_KEY_131, DEEPSEEK_API_KEY
+        self.api_key = os.getenv("QWEN_API_KEY_131")  # QWEN_API_KEY_130, QWEN_API_KEY_131, DEEPSEEK_API_KEY
         if not self.api_key:
             raise ValueError("请设置环境变量 QWEN_API_KEY")
-        self.api_base_url = os.getenv("DEEPSEEK_API_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")  # QWEN_API_BASE_URL, DEEPSEEK_API_BASE_URL
+        self.api_base_url = os.getenv("QWEN_API_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")  # QWEN_API_BASE_URL, DEEPSEEK_API_BASE_URL
         self.temperature = 1.0
         self.max_tokens = 65536 # 65536, 131072
 
