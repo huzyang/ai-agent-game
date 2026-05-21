@@ -482,6 +482,13 @@ class GameModel(mesa.Model):
                 logger.debug(f"提取发送金额决策(带引号键名): {result}")
                 return self._decisions_check(result, agent, player_type)
 
+            # 1.2 再尝试匹配带单引号的键名格式 {'1': 1.00, '3': 1.00}
+            single_quoted_pairs = re.findall(r"'(\d+)'\s*:\s*(\d+(?:\.\d+)?)", content)
+            if single_quoted_pairs:
+                result = {int(k): float(v) for k, v in single_quoted_pairs}
+                logger.debug(f"提取发送金额决策(带单引号键名): {result}")
+                return self._decisions_check(result, agent, player_type)
+
             # 1.2 再尝试匹配不带引号的键名格式 {3:1, 27:2}
             pairs = re.findall(r"(\d+)\s*:\s*(\d+(?:\.\d+)?)", content)
             if pairs:

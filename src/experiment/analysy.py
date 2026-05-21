@@ -116,9 +116,9 @@ class TrustGameAnalyzer:
 
         # 平均委托/返还金额（按交互记录）
         # total_sent 是发送给4个邻居的总和，取平均每次发送
-        mean_invested = df['total_sent'].mean() / 4
+        mean_invested = df['total_sent'].mean()
         # total_returned 是从4个邻居收到的返还总和，取平均每次返还
-        mean_returned = df['total_returned'].mean() / 4
+        mean_returned = df['total_returned'].mean()
 
         # 群体总收益：所有 agent 在最后一轮的 accumulate_payoff 之和
         # 每个 agent 的最终累计收益（取每个 agent 的最大 round 对应的 accumulate_payoff）
