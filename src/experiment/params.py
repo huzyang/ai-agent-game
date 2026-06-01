@@ -65,12 +65,13 @@ class Params:
         self.num_agents = 36
         self.width: int = int(self.num_agents ** 0.5)  # 根号 N
         self.height: int = self.width
-        self.proportions = [0, 0.25]  # 自由节点比例 0, 0.25, 0.5, 0.75, 1
+        self.proportions = [0.5, 0.75, 1]  # 自由节点比例 0, 0.25, 0.5, 0.75, 1
         self.model_type_list = [ModelType.DEEPSEEK_V_4_FLASH.value]
         self.game_type = GameType.TRUST.value
         self.rounds = 20  # 游戏轮数
         self.iterations = 1
         self.report_bdi = False
+        self.total_round_info = False
 
         ################# LLM 参数 ####################
         load_dotenv()

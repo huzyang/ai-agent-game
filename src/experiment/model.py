@@ -148,7 +148,11 @@ class GameModel(mesa.Model):
             # 系统提示词组成： p_characters[i] + p_like_people + p_experiment_info + p_game_rules.get("trust_game") + p_behavioral_objective + p_output_requirements + p_consistency
             character = p_characters[agent.unique_id]
             # character = random.choice(p_characters_student[:2])  # 测试使用
-            experiment_info = p_experiment_info.format(rounds=rounds)
+
+            if self.params.total_round_info:
+                experiment_info = p_experiment_info.get("total_round_info").format(rounds=rounds)
+            else:
+                experiment_info = p_experiment_info.get("no_total_round_info")
             game_play_rules = p_game_rules.get(self.game_type).format(width=self.width, height=self.height)
             agent_setting = p_settings.format(focal=id_type, n1=neighbors_id_type[0], n2=neighbors_id_type[1], n3=neighbors_id_type[2], n4=neighbors_id_type[3])
             if self.params.report_bdi:

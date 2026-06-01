@@ -69,7 +69,7 @@ class TrustGameAnalyzer:
                         'received_return_from_n1', 'received_return_from_n2', 'received_return_from_n3', 'received_return_from_n4', 'total_received_return',
                         'received_send_from_n1', 'received_send_from_n2', 'received_send_from_n3', 'received_send_from_n4', 'total_received_send',
                         'returned_to_n1', 'returned_to_n2', 'returned_to_n3', 'returned_to_n4', 'total_returned',
-                        'trustor_payoff', 'trustee_payoff', 'round_payoff', 'accumulate_payoff']
+                        'trustor_payoff', 'trustee_payoff', 'round_payoff', 'accumulate_payoff']  # 'run_id', 'iteration',
         for col in numeric_cols:
             if col in self.df.columns:
                 self.df[col] = pd.to_numeric(self.df[col], errors='coerce').fillna(0)
@@ -511,10 +511,10 @@ if __name__ == "__main__":
     csv_dir = os.path.join(
         CommonUtils.get_project_root_path(),
         "outputs",
-        "20260514_101530_Char-NoBDI_deepseek-v4-pro_trust_game"
+        "20260529_105859_deepseek-v4-flash_no_total_round-avg"
     )
 
-    file_name = "20260514_101530_trust_game_p-[0, 0.25,0.5,0.75,1].csv"
+    file_name = "averaged_3_runs_p-[0, 0.25, 0.5, 0.75, 1].csv"
     file_path = os.path.join(csv_dir, file_name)
 
     if not os.path.exists(file_path):
@@ -528,7 +528,7 @@ if __name__ == "__main__":
     analyzer = TrustGameAnalyzer([file_path])
 
     # 1. 导出 Excel（包含分组数据）
-    analyzer.export_plot_data_to_excel(os.path.join(csv_dir, "20260514_101530_plot_data.xlsx"))
+    analyzer.export_plot_data_to_excel(os.path.join(csv_dir, "averaged_3_runs_plot_data.xlsx"))
 
     # 2. 生成复刻例图的抖动散点+箱线图（基于单次发送/返还金额）
     fig_dir = os.path.join(csv_dir, "figures")
