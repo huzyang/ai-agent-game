@@ -6,3 +6,7 @@ src/camel/
 *.zip
 src.zip
 src.zip
+.pyc
+.xlsx
+.png
+.json

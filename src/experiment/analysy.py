@@ -5,6 +5,7 @@ analysis.py
 扩展功能：按proportion分组提取列值、绘制抖动散点+箱线图（复刻例图）
 """
 
+# pyright: reportMissingModuleSource=false
 import os
 import pandas as pd
 import numpy as np
